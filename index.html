@@ -80,6 +80,7 @@
       <p class="muted" id="portToolsStatus">Connect Mario to use standard port and hub-property requests.</p>
       <div class="warning">Port scans ask for metadata; they do not assume every port exists. Changing the advertising name changes the Bluetooth name broadcast by the hub. The hub may reject operations it does not implement.</div>
     </article>
+    <article class="card" id="deviceHealthCard" style="grid-column:1/-1"><h2>Device Health</h2><p class="muted">Run a read-only check of standard hub properties, alerts, attached ports and sensor metadata. Missing responses are unavailable, not automatically faults.</p><div class="actions"><button class="primary" id="runHealthCheck" disabled>Run all diagnostics</button><span class="muted" id="healthRunStatus">Connect Mario to begin.</span></div><div class="progress"><span id="healthProgress"></span></div><div id="healthResults" class="log"><div class="muted">No diagnostic run yet.</div></div><div class="warning">This reads device information and requests sensor input metadata. It does not test motors, change sensor modes, switch Mario off or install firmware.</div></article>
     <article class="card" style="grid-column:1/-1">
       <h2>Advanced port diagnostics</h2>
       <p class="muted">Inspect the documented LPF2 sensor metadata and configure input notifications. These controls do not issue motor-output commands.</p>
@@ -199,6 +200,41 @@ console.log("Requested hub details and sensor updates.");
   const activeModes = new Map();
   const portInfo = new Map();
   const decoder = new TextDecoder();
+  const healthProperties = new Map();
+  const healthAlerts = new Set();
+  let healthRunning = false;
+  function renderHealth() {
+    const box=$("healthResults"), rows=[];
+    const add=(label,state,detail)=>rows.push({label,state,detail});
+    add("Bluetooth connection",characteristic?"PASS":"UNAVAILABLE",characteristic?"Connected.":"Not connected.");
+    add("Hub properties",healthProperties.size?"PASS":"WAITING",healthProperties.size+" of 15 standard properties replied.");
+    for(const [id,label] of [[3,"Firmware"],[4,"Hardware"],[5,"RSSI"],[6,"Battery"],[7,"Battery type"]]){const v=healthProperties.get(id);add(label,v?"PASS":"UNAVAILABLE",v||"No reply.");}
+    add("Hub alerts",healthAlerts.size?"PASS":"UNAVAILABLE",healthAlerts.size+" of 4 alert types replied.");
+    add("Attached ports",portInfo.size?"PASS":"UNAVAILABLE",portInfo.size+" port(s) reported.");
+    const modes=[...portInfo.values()].reduce((n,p)=>n+Object.keys(p.modes||{}).length,0);
+    add("Port mode metadata",modes?"PASS":"UNAVAILABLE",modes+" mode record(s).");
+    const vol=healthProperties.get(18);add("Speaker volume",vol?"PASS":"UNAVAILABLE",vol||"No response from Mario volume extension.");
+    add("LCD stream","NOT AVAILABLE","Standard LWP has no LCD framebuffer or video stream.");
+    box.replaceChildren();
+    for(const x of rows){const row=document.createElement("div"),strong=document.createElement("strong"),detail=document.createElement("div");row.className="log-row";strong.textContent=x.state+" - "+x.label;detail.textContent=x.detail;row.append(strong,detail);box.append(row);}
+  }
+  async function runDeviceHealth(){
+    if(!characteristic)throw new Error("Connect Mario first.");
+    if(healthRunning)return;
+    healthRunning=true;$("runHealthCheck").disabled=true;$("healthProgress").style.width="5%";
+    $("healthRunStatus").textContent="Requesting properties, alerts and ports...";
+    healthProperties.clear();healthAlerts.clear();renderHealth();
+    try{
+      await requestHubInfo();$("healthProgress").style.width="30%";
+      await requestAllAlertStates();$("healthProgress").style.width="48%";
+      await requestAllPorts();$("healthProgress").style.width="75%";
+      await readVolume();await new Promise(resolve=>setTimeout(resolve,2800));
+      $("healthProgress").style.width="100%";$("healthRunStatus").textContent="Requests complete; results reflect replies received.";
+      renderHealth();log("Device Health checks completed.");
+    }catch(error){$("healthRunStatus").textContent="Stopped: "+error.message;renderHealth();throw error;}
+    finally{healthRunning=false;$("runHealthCheck").disabled=!characteristic;}
+  }
+
 
   function setStatus(text, connected=false) {
     $("status").textContent = text;
@@ -211,6 +247,7 @@ console.log("Requested hub details and sensor updates.");
     for (const id of ["eventBusyOn","eventBusyOff","eventVccOn","eventVccOff","eventDisconnect","eventPowerOff","eventAlertsRequest","eventAlertsEnable","eventAlertsDisable","eventLiveEnable","eventLiveDisable"]) $(id).disabled = !connected;
     for (const id of ["scanPorts","requestAllHubProps","portInfo","portCombos","portModeName","portModeFormat","portSubscribe","portUnsubscribe","setHubName","resetHubName"]) $(id).disabled = !connected;
     for (const id of ["portReadValue","portAllModeInfo","portResetSensor"]) $(id).disabled = !connected;
+    $("runHealthCheck").disabled = !connected;
   }
   function hex(bytes) { return [...bytes].map(v=>v.toString(16).padStart(2,"0").toUpperCase()).join(" "); }
   function signedBytes(bytes) { return [...bytes].map(v=>v>127?v-256:v).join(", "); }
@@ -261,6 +298,7 @@ console.log("Requested hub details and sensor updates.");
     const hub = packet[1], type = packet[2];
     if (type === 0x01 && packet.length >= 5) {
       const property = packet[3], operation = packet[4], data = packet.slice(5);
+      healthProperties.set(property, value);
       const names = {1:"Hub name",2:"Button",3:"Firmware version",4:"Hardware version",5:"RSSI",6:"Battery level",7:"Battery type",8:"Manufacturer",9:"Radio firmware",10:"LWP version",11:"System type",18:"Speaker volume"};
       let value = hex(data);
       if ([1,8,9].includes(property)) value = decoder.decode(new Uint8Array(data)).replace(/\0/g,"");
@@ -292,6 +330,7 @@ console.log("Requested hub details and sensor updates.");
       if (oldRow) oldRow.replaceWith(propertyRow); else hubBox.append(propertyRow);
       log("Hub property · " + (names[property] || ("0x"+property.toString(16))) + " · operation 0x" + operation.toString(16) + " · " + value);
     } else if (type === 0x03 && packet.length >= 5) {
+      healthAlerts.add(packet[3]);
       log("Hub alert · type 0x" + packet[3].toString(16) + " · status " + (packet[4] === 0xFF ? "ALERT" : "OK"));
     } else if (type === 0x04 && packet.length >= 5) {
       const port = packet[3], event = packet[4];
@@ -855,6 +894,7 @@ console.log("Requested hub details and sensor updates.");
       log("TX · set speaker volume " + value + "% · 06 00 01 12 01 " + value.toString(16).padStart(2,"0").toUpperCase());
     } catch (e) { $("volumeStatus").textContent = "Volume was not sent: " + e.message; }
   }
+  $("runHealthCheck").addEventListener("click",async()=>{try{await runDeviceHealth();}catch(e){$("healthRunStatus").textContent=e.message;}});
   $("portReadValue").addEventListener("click", async () => { try { const {port}=readPortInputs(); await readCurrentPortValue(port); } catch(e) { $("advancedPortStatus").textContent=e.message; } });
   $("portAllModeInfo").addEventListener("click", async () => { try { const {port,mode}=readPortInputs(); await requestAllModeMetadata(port,mode); } catch(e) { $("advancedPortStatus").textContent=e.message; } });
   $("portResetSensor").addEventListener("click", async () => { try { const {port}=readPortInputs(); await resetPortSensor(port); } catch(e) { $("advancedPortStatus").textContent=e.message; } });
