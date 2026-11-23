@@ -67,8 +67,31 @@ console.log("Requested hub details and sensor updates.");
       <div class="actions"><button class="primary" id="runScript">Run script</button><button id="stopScript" disabled>Stop script</button><button id="exampleScript">Load example</button></div>
       <p class="muted" id="scriptStatus" aria-live="polite">Ready. Connect Mario before using Bluetooth commands.</p>
       <div class="readout" id="scriptOutput" aria-live="polite">Script output will appear here.</div>
-      <p class="muted">Library: <code>mario.log(text)</code>, <code>mario.delay(ms)</code>, <code>mario.subscribe(port, mode, delta?)</code>, <code>mario.unsubscribe(port, mode)</code>, <code>mario.readPort(port)</code>, <code>mario.requestPortInfo(port, infoType)</code>, <code>mario.requestPortModeInfo(port, mode, infoType)</code>, <code>mario.requestHubProperty(property)</code>, <code>mario.getHubInfo()</code>, <code>mario.requestBatteryLevel()</code>, <code>mario.requestFirmwareVersion()</code>, <code>mario.requestHardwareVersion()</code>, <code>mario.requestRSSI()</code>, <code>mario.setVolume(0..100)</code>, <code>mario.requestButtonState()</code>, <code>mario.setBusyIndicator(enabled)</code>, <code>mario.enableBatteryUpdates()</code>, <code>mario.disableBatteryUpdates()</code>, <code>mario.setLiveHubStatus(enabled)</code>, <code>mario.setHubAlerts(enabled)</code>, <code>mario.sendHex(packet)</code>, <code>mario.disconnect()</code>.</p>
+      <p class="muted">Library: <code>mario.log(text)</code>, <code>mario.delay(ms)</code>, <code>mario.subscribe(port, mode, delta?)</code>, <code>mario.unsubscribe(port, mode)</code>, <code>mario.readPort(port)</code>, <code>mario.requestPortInfo(port, infoType)</code>, <code>mario.requestPortModeInfo(port, mode, infoType)</code>, <code>mario.requestHubProperty(property)</code>, <code>mario.getHubInfo()</code>, <code>mario.requestBatteryLevel()</code>, <code>mario.requestFirmwareVersion()</code>, <code>mario.requestHardwareVersion()</code>, <code>mario.requestRSSI()</code>, <code>mario.setVolume(0..100)</code>, <code>mario.requestButtonState()</code>, <code>mario.setBusyIndicator(enabled)</code>, <code>mario.enableBatteryUpdates()</code>, <code>mario.disableBatteryUpdates()</code>, <code>mario.setLiveHubStatus(enabled)</code>, <code>mario.setHubAlerts(enabled)</code>, <code>mario.sendHubAction(action)</code>, <code>mario.sendHubAlert(type, operation)</code>, <code>mario.requestAllAlertStates()</code>, <code>mario.sendHex(packet)</code>, <code>mario.disconnect()</code>.</p>
       <div class="warning">Scripts can send Bluetooth commands to the connected hub. The volume API uses Mario's separately verified extension. <code>mario.displaytext(text)</code> remains unavailable: LEGO's published protocol does not document a custom-text display command for Mario.</div>
+    </article>
+    <article class="card" style="grid-column:1/-1">
+      <h2>Events · send documented commands</h2>
+      <p class="muted">Send supported LEGO Wireless Protocol hub actions and request hub event notifications. These are protocol commands, not custom animations or text messages.</p>
+      <div class="actions">
+        <button id="eventBusyOn" disabled>Activate BUSY indication</button>
+        <button id="eventBusyOff" disabled>Reset BUSY indication</button>
+        <button id="eventVccOn" disabled>VCC port control ON</button>
+        <button id="eventVccOff" disabled>VCC port control OFF</button>
+        <button id="eventDisconnect" disabled>Disconnect hub</button>
+        <button id="eventPowerOff" disabled>Switch Mario off</button>
+      </div>
+      <div class="actions" style="margin-top:10px">
+        <button id="eventAlertsRequest" disabled>Request all alert states</button>
+        <button id="eventAlertsEnable" disabled>Subscribe to all alerts</button>
+        <button id="eventAlertsDisable" disabled>Unsubscribe from alerts</button>
+        <button id="eventLiveEnable" disabled>Enable button/battery/RSSI events</button>
+        <button id="eventLiveDisable" disabled>Disable property events</button>
+      </div>
+      <p class="muted" id="eventStatus">Connect Mario to enable event commands.</p>
+      <div class="warning"><strong>Compatibility notice:</strong> All commands are based on documented LEGO protocol operations, but they cannot be guaranteed to work on Mario. Firmware, hardware capabilities and the connected hub state can affect support. A successful Bluetooth write only confirms that the browser sent the packet; it does not guarantee that Mario performed the action.</div>
+      <p class="muted"><strong>Receive-only events:</strong> Attached I/O notifications (detached, attached, virtual attached) and hub action notifications (will switch off, will disconnect, will enter boot mode) originate from the hub. This page can display them when received; it cannot send them to Mario as commands.</p>
+      <p class="muted"><strong>Not included:</strong> production-only shutdown, firmware/bootloader commands, undocumented actions, or arbitrary event injection.</p>
     </article>
     <article class="card"><h2>Hub controls</h2>
       <p class="muted">Hub actions and status requests. The official BUSY action controls an RGB indication, not Mario’s LCD screen.</p>
@@ -125,6 +148,7 @@ console.log("Requested hub details and sensor updates.");
     $("sendPacket").disabled = !connected;
     for (const id of ["busyOn","busyOff","refreshInfo","buttonState","readVolume","setVolume","volumeSlider","startUpdateDemo"]) $(id).disabled = !connected;
     for (const id of ["liveHubOn","liveHubOff","alertsOn","alertsOff"]) $(id).disabled = !connected;
+    for (const id of ["eventBusyOn","eventBusyOff","eventVccOn","eventVccOff","eventDisconnect","eventPowerOff","eventAlertsRequest","eventAlertsEnable","eventAlertsDisable","eventLiveEnable","eventLiveDisable"]) $(id).disabled = !connected;
   }
   function hex(bytes) { return [...bytes].map(v=>v.toString(16).padStart(2,"0").toUpperCase()).join(" "); }
   function signedBytes(bytes) { return [...bytes].map(v=>v>127?v-256:v).join(", "); }
@@ -387,6 +411,17 @@ console.log("Requested hub details and sensor updates.");
       } else if (method === "setLiveHubStatus") {
         await setLiveHubStatus(Boolean(args[0]));
         result = "Live button, RSSI and battery property updates requested.";
+      } else if (method === "sendHubAction") {
+        const action = Number(args[0]);
+        const labels = {1:"Switch Off Hub",2:"Disconnect",3:"VCC Port Control On",4:"VCC Port Control Off",5:"Activate BUSY Indication",6:"Reset BUSY Indication"};
+        await sendHubAction(action, labels[action] || String(args[1] || "Hub action"));
+        result = "Documented hub action packet sent. Hardware support is not guaranteed.";
+      } else if (method === "sendHubAlert") {
+        await sendHubAlert(Number(args[0]), Number(args[1]));
+        result = "Hub alert command sent. Check the packet log for any response.";
+      } else if (method === "requestAllAlertStates") {
+        await requestAllAlertStates();
+        result = "Requested all four documented hub alert states.";
       } else if (method === "setHubAlerts") {
         await setHubAlerts(Boolean(args[0]));
         result = "Hub alert subscription requests sent.";
@@ -485,6 +520,9 @@ console.log("Requested hub details and sensor updates.");
           requestHubProperty: property => call("requestHubProperty", property),
           setLiveHubStatus: enabled => call("setLiveHubStatus", enabled),
           setHubAlerts: enabled => call("setHubAlerts", enabled),
+          sendHubAction: (action, label = "Custom documented hub action") => call("sendHubAction", action, label),
+          sendHubAlert: (type, operation) => call("sendHubAlert", type, operation),
+          requestAllAlertStates: () => call("requestAllAlertStates"),
           getHubInfo: () => call("getHubInfo"),
           requestBatteryLevel: () => call("requestHubProperty", 6),
           requestFirmwareVersion: () => call("requestHubProperty", 3),
@@ -568,16 +606,40 @@ console.log("Requested hub details and sensor updates.");
       : "Live property updates disabled.";
     log("Hub property notifications " + (enabled ? "enabled" : "disabled") + " for button, RSSI and battery.");
   }
+  async function sendHubAction(action, label) {
+    if (!characteristic) throw new Error("Connect Mario first.");
+    if (![0x01,0x02,0x03,0x04,0x05,0x06].includes(action)) throw new Error("This action is not enabled in the Events panel.");
+    const bytes = [0x04,0x00,0x02,action];
+    await writePacket(bytes);
+    log("EVENT TX · Hub Action " + action.toString(16).padStart(2,"0").toUpperCase() + " · " + label + " · " + hex(bytes));
+    $("eventStatus").textContent = label + " packet sent. The hub may not support or visibly perform this action.";
+  }
+  async function sendHubAlert(alertType, operation) {
+    if (!characteristic) throw new Error("Connect Mario first.");
+    if (!Number.isInteger(alertType) || alertType < 1 || alertType > 4 || ![1,2,3].includes(operation)) throw new Error("Alert type must be 1–4 and operation must be enable, disable or request.");
+    const bytes = [0x06,0x00,0x03,alertType,operation,0x01];
+    await writePacket(bytes);
+    const typeNames = {1:"Low voltage",2:"High current",3:"Low signal strength",4:"Over-power condition"};
+    const opNames = {1:"enable updates",2:"disable updates",3:"request current state"};
+    log("EVENT TX · " + typeNames[alertType] + " · " + opNames[operation] + " · " + hex(bytes));
+  }
+  async function requestAllAlertStates() {
+    for (let type=1; type<=4; type++) {
+      await sendHubAlert(type,3);
+      await new Promise(resolve=>setTimeout(resolve,70));
+    }
+    $("eventStatus").textContent = "Requested all four documented hub alert states. Check the packet log for responses.";
+  }
   async function setHubAlerts(enabled) {
     if (!characteristic) throw new Error("Connect Mario first.");
     for (const alertType of [1,2,3,4]) {
-      await writePacket([0x06,0x00,0x03,alertType,enabled ? 0x01 : 0x02,1]);
+      await sendHubAlert(alertType, enabled ? 1 : 2);
       await new Promise(resolve => setTimeout(resolve, 60));
     }
     $("liveStatus").textContent = enabled
       ? "Hub alert notifications requested: low voltage, high current, low signal and over-power."
       : "Hub alert notifications disabled.";
-    log("Hub alert notifications " + (enabled ? "enabled" : "disabled") + " for alert types 1–4.");
+    $("eventStatus").textContent = enabled ? "Subscribed to all four documented alert types." : "Unsubscribed from all four alert types.";
   }
   async function requestHubInfo() {
     if (!characteristic) throw new Error("Connect Mario before requesting hub information.");
@@ -615,6 +677,18 @@ console.log("Requested hub details and sensor updates.");
   $("liveHubOff").addEventListener("click", async () => { try { await setLiveHubStatus(false); } catch(e) { $("liveStatus").textContent = e.message; } });
   $("alertsOn").addEventListener("click", async () => { try { await setHubAlerts(true); } catch(e) { $("liveStatus").textContent = e.message; } });
   $("alertsOff").addEventListener("click", async () => { try { await setHubAlerts(false); } catch(e) { $("liveStatus").textContent = e.message; } });
+  $("eventBusyOn").addEventListener("click", async () => { try { await sendHubAction(0x05,"Activate BUSY indication"); } catch(e) { $("eventStatus").textContent=e.message; } });
+  $("eventBusyOff").addEventListener("click", async () => { try { await sendHubAction(0x06,"Reset BUSY indication"); } catch(e) { $("eventStatus").textContent=e.message; } });
+  $("eventVccOn").addEventListener("click", async () => { if (!confirm("Request VCC port control ON? This changes hub port power and may affect attached devices.")) return; try { await sendHubAction(0x03,"VCC Port Control On"); } catch(e) { $("eventStatus").textContent=e.message; } });
+  $("eventVccOff").addEventListener("click", async () => { if (!confirm("Request VCC port control OFF? This may interrupt power to attached devices.")) return; try { await sendHubAction(0x04,"VCC Port Control Off"); } catch(e) { $("eventStatus").textContent=e.message; } });
+  $("eventDisconnect").addEventListener("click", async () => { if (!confirm("Disconnect the Bluetooth connection to Mario?")) return; try { await sendHubAction(0x02,"Disconnect"); } catch(e) { $("eventStatus").textContent=e.message; } });
+  $("eventPowerOff").addEventListener("click", async () => { if (!confirm("Switch Mario off? You may need to press its physical power button to turn it on again.")) return; try { await sendHubAction(0x01,"Switch Off Hub"); } catch(e) { $("eventStatus").textContent=e.message; } });
+  $("eventAlertsRequest").addEventListener("click", async () => { try { await requestAllAlertStates(); } catch(e) { $("eventStatus").textContent=e.message; } });
+  $("eventAlertsEnable").addEventListener("click", async () => { try { await setHubAlerts(true); } catch(e) { $("eventStatus").textContent=e.message; } });
+  $("eventAlertsDisable").addEventListener("click", async () => { try { await setHubAlerts(false); } catch(e) { $("eventStatus").textContent=e.message; } });
+  $("eventLiveEnable").addEventListener("click", async () => { try { await setLiveHubStatus(true); $("eventStatus").textContent="Button, battery and RSSI property updates requested."; } catch(e) { $("eventStatus").textContent=e.message; } });
+  $("eventLiveDisable").addEventListener("click", async () => { try { await setLiveHubStatus(false); $("eventStatus").textContent="Button, battery and RSSI property updates disabled."; } catch(e) { $("eventStatus").textContent=e.message; } });
+
 
   let updateDemoTimer = null, updateCountdown = null;
   function stopUpdateDemo(message = "Preparation cancelled.") {
