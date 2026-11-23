@@ -221,7 +221,7 @@ console.log("Requested hub details and sensor updates.");
   const healthErrors = [], healthIoEvents = [], healthHubEvents = [];
   const debugPackets = [], debugStats = {rx:0,tx:0,notifications:0,malformed:0,byType:{},lastRx:0,maxGapMs:0,gaps:0};
   let debugCaptureEnabled = true, debugStartedAt = Date.now();
-  let healthRunning = false, healthNotificationCount = 0, healthModeAcks = 0, healthCombinedValues = 0, lastHealthReport = null;
+  let healthRunning = false, healthNotificationCount = 0, healthModeAcks = 0, healthCombinedValues = 0, healthCombinedAcks = 0, lastHealthReport = null;
   function renderHealth() {
     const snapshot = {
       connected: !!characteristic,
@@ -229,7 +229,7 @@ console.log("Requested hub details and sensor updates.");
       alerts: Object.fromEntries(healthAlerts),
       ports: [...portInfo.entries()].map(([id, p]) => ({id, ...p})),
       errors: healthErrors.slice(), ioEvents: healthIoEvents.slice(), hubEvents: healthHubEvents.slice(), notificationCount: healthNotificationCount,
-      modeAcks: healthModeAcks, combinedValues: healthCombinedValues
+      modeAcks: healthModeAcks, combinedValues: healthCombinedValues, combinedAcks: healthCombinedAcks
     };
     lastHealthReport = window.DeviceHealthDiagnostics.buildReport(snapshot);
     const {summary, rows} = lastHealthReport;
@@ -247,7 +247,7 @@ console.log("Requested hub details and sensor updates.");
     if(healthRunning)return;
     healthRunning=true;$("runHealthCheck").disabled=true;$("exportHealthReport").disabled=true;$("healthProgress").style.width="2%";
     $("healthRunStatus").textContent="Requesting all standard hub properties and alert states...";
-    healthProperties.clear();healthAlerts.clear();healthErrors.length=0;healthIoEvents.length=0;healthHubEvents.length=0;healthNotificationCount=0;healthModeAcks=0;healthCombinedValues=0;
+    healthProperties.clear();healthAlerts.clear();healthErrors.length=0;healthIoEvents.length=0;healthHubEvents.length=0;healthNotificationCount=0;healthModeAcks=0;healthCombinedValues=0;healthCombinedAcks=0;
     renderHealth();
     try{
       await requestHubInfo(); $("healthProgress").style.width="12%";
@@ -520,10 +520,11 @@ console.log("Requested hub details and sensor updates.");
       }
     } else if (type === 0x47 && packet.length >= 10) {
       const port=packet[3],mode=packet[4],delta=packet[5]|(packet[6]<<8)|(packet[7]<<16)|(packet[8]<<24),enabled=packet[9]===1;
-      healthModeAcks++;renderHealth();
+      healthModeAcks++;const portRecord=portInfo.get(port)||{};portRecord.inputFormat={mode,deltaInterval:delta>>>0,notificationsEnabled:enabled,acknowledgedAt:new Date().toISOString()};portInfo.set(port,portRecord);renderHealth();renderPorts();
       log("Port input format acknowledged · port "+port+" · mode "+mode+" · delta "+(delta>>>0)+" · notifications "+(enabled?"enabled":"disabled"));
     } else if (type === 0x48 && packet.length >= 7) {
       const port=packet[3],control=packet[4],pointer=packet[5]|(packet[6]<<8);
+      const portRecord=portInfo.get(port)||{};portRecord.combinedInputFormat={control,combinationIndex:control&0x0F,multiUpdate:!!(control&0x80),modeDataPointer:pointer,acknowledgedAt:new Date().toISOString()};portInfo.set(port,portRecord);healthCombinedAcks++;renderHealth();renderPorts();
       log("Combined input format acknowledged · port "+port+" · multi-update "+((control&0x80)?"enabled":"disabled")+" · mode/data pointer 0x"+pointer.toString(16).padStart(4,"0"));
     } else if (type === 0x82 && packet.length >= 5) {
       const port = packet[3], feedback = packet[4];
