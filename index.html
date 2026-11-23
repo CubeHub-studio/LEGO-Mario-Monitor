@@ -29,7 +29,7 @@
 <body>
 <main class="wrap">
   <header class="top">
-    <div><h1>LEGO Mario Monitor</h1><p class="sub">Live Bluetooth sensor monitor · read-only dashboard</p></div>
+    <div><h1>LEGO Mario Monitor</h1><p class="sub">Live Bluetooth sensor monitor · JavaScript scripting</p></div>
     <div class="actions"><button class="primary" id="connect">Connect Mario</button><button id="disconnect" disabled>Disconnect</button></div>
   </header>
   <section class="status" aria-live="polite"><span class="dot" id="dot"></span><strong id="status">Not connected</strong><span class="muted" id="deviceName"></span></section>\n  <div class="warning" style="margin-top:-10px"><strong>Connect directly:</strong> Close or disconnect the official LEGO Mario app first, then open this page in Chrome (not an in-app browser) and tap <strong>Connect Mario</strong>. Choose your Mario figure in the Bluetooth picker. The website connects to the figure itself; the LEGO app does not need to stay open.</div>
@@ -88,6 +88,7 @@ await mario.subscribe(1, 0);
     $("dot").classList.toggle("on", connected);
     $("connect").disabled = connected;
     $("disconnect").disabled = !connected;
+    $("sendPacket").disabled = !connected;
   }
   function hex(bytes) { return [...bytes].map(v=>v.toString(16).padStart(2,"0").toUpperCase()).join(" "); }
   function signedBytes(bytes) { return [...bytes].map(v=>v>127?v-256:v).join(", "); }
@@ -201,7 +202,7 @@ await mario.subscribe(1, 0);
   function scriptOutput(message) {
     const box = $("scriptOutput");
     if (box.textContent === "Script output will appear here.") box.textContent = "";
-    box.textContent += (box.textContent ? "\\n" : "") + String(message);
+    box.textContent += (box.textContent ? "\n" : "") + String(message);
     box.scrollTop = box.scrollHeight;
   }
   function stopScript(message = "Script stopped.") {
