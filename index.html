@@ -96,6 +96,47 @@
       <div id="debugPacketList" class="log" style="max-height:360px"><div class="muted">Packet capture will appear here.</div></div>
       <div class="warning">The trace may contain hardware identifiers such as MAC addresses. Review it before sharing. The debugger never sends extra commands by itself.</div>
     </article>
+    <article class="card" id="sessionInsights" style="grid-column:1/-1">
+      <h2>Session insights · live telemetry</h2>
+      <p class="muted">Local session-only analytics. These measurements summarize packets received by this page; they are not official battery-health or radio-quality tests.</p>
+      <div class="grid">
+        <div><div class="muted">Connection uptime</div><div class="metric" id="sessionUptime">—</div></div>
+        <div><div class="muted">Notification rate</div><div class="metric" id="sessionRate">0 / sec</div></div>
+        <div><div class="muted">RX / TX packets</div><div class="metric" id="sessionTraffic">0 / 0</div></div>
+        <div><div class="muted">Button transitions</div><div class="metric" id="sessionButtonCount">0</div></div>
+      </div>
+      <div class="readout" id="sessionDiagnostics">Connect Mario to collect session statistics.</div>
+      <div class="grid" style="margin-top:12px">
+        <div><strong>Battery samples</strong><div class="readout" id="batteryTrend">No samples yet</div></div>
+        <div><strong>RSSI samples</strong><div class="readout" id="rssiTrend">No samples yet</div></div>
+      </div>
+      <div class="actions" style="margin-top:12px">
+        <button id="exportPortCsv" disabled>Export port samples CSV</button>
+        <button id="exportPropertiesCsv" disabled>Export hub properties CSV</button>
+        <button id="exportPortJson" disabled>Export port samples JSON</button>
+        <button id="copyHealthJson" disabled>Copy diagnostics JSON</button>
+        <button id="exportSessionNotes">Download session notes</button>
+      </div>
+      <label class="muted" for="sessionNotes">Session notes (kept only in this page until you leave)</label>
+      <textarea id="sessionNotes" rows="3" placeholder="Add observations about this connection..." style="display:block;width:100%;margin:6px 0 10px;padding:10px;border:1px solid #384258;border-radius:10px;background:#0e1119;color:#f3f6fc"></textarea>
+      <div class="warning">Exports can include device identifiers and raw sensor data. Review files before sharing. Nothing is uploaded by these tools.</div>
+    </article>
+    <article class="card" id="healthExplorer" style="grid-column:1/-1">
+      <h2>Diagnostic explorer · search and filters</h2>
+      <div class="control-row" style="flex-wrap:wrap">
+        <input id="healthSearch" type="search" placeholder="Search diagnostic names or details" style="flex:1;min-width:180px;padding:10px;border:1px solid #384258;border-radius:9px;background:#0e1119;color:#f3f6fc">
+        <select id="healthStatusFilter" style="padding:10px;border:1px solid #384258;border-radius:9px;background:#0e1119;color:#f3f6fc">
+          <option value="">All statuses</option><option>PASS</option><option>WARNING</option><option>INFO</option><option>WAITING</option><option>UNAVAILABLE</option><option>NO RESPONSE</option>
+        </select>
+      </div>
+      <p class="muted" id="healthFilterSummary">Run Device Health to populate searchable results.</p>
+      <div class="readout" id="modeBitmapView">Mode bitmap inventory appears when port capability responses arrive.</div>
+      <div class="actions" style="margin-top:10px">
+        <button id="checkBrowserBle">Check browser Bluetooth support</button>
+        <button id="refreshCoreProperties" disabled>Refresh key hub properties</button>
+      </div>
+      <div class="readout" id="browserBleStatus">Browser capability check not run.</div>
+    </article>
     <article class="card" id="gameDataReader" style="grid-column:1/-1">
       <h2>Challenge data reader · documented interface</h2>
       <p class="muted">Reads raw LPF2 port-value notifications already exposed by the standard hub interface. This is a data observer, not a verified Mario-game decoder: coin, timer and score meanings are not established by the published protocol.</p>
@@ -252,6 +293,47 @@ console.log("Requested hub details and sensor updates.");
   const healthAlerts = new Map();
   const healthErrors = [], healthIoEvents = [], healthHubEvents = [];
   const debugPackets = [], debugStats = {rx:0,tx:0,notifications:0,malformed:0,byType:{},lastRx:0,maxGapMs:0,gaps:0};
+  const sessionStartedAt = Date.now();
+  const propertyHistory = [], portSampleHistory = [], batterySamples = [], rssiSamples = [];
+  const buttonStats = {pressed:0,released:0,last:null};
+  let lastPropertyValues = new Map();
+  function downloadText(filename, content, type="text/plain") {
+    const blob=new Blob([content],{type});
+    const url=URL.createObjectURL(blob), a=document.createElement("a");
+    a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  function csvCell(value) { return '"' + String(value ?? "").replace(/"/g,'""') + '"'; }
+  function updateSessionInsights() {
+    const connected=!!characteristic, elapsed=connected?Math.max(0,Date.now()-sessionStartedAt):0;
+    const fmt=ms=>{const sec=Math.floor(ms/1000);return Math.floor(sec/3600)+"h "+Math.floor(sec%3600/60)+"m "+sec%60+"s";};
+    $("sessionUptime").textContent=connected?fmt(elapsed):"Disconnected";
+    $("sessionRate").textContent=connected?(healthNotificationCount/Math.max(1,elapsed/1000)).toFixed(2)+" / sec":"—";
+    $("sessionTraffic").textContent=debugStats.rx+" / "+debugStats.tx;
+    $("sessionButtonCount").textContent=buttonStats.pressed+" pressed · "+buttonStats.released+" released";
+    $("sessionDiagnostics").textContent="Notifications: "+healthNotificationCount+" · malformed: "+debugStats.malformed+" · max observed gap: "+debugStats.maxGapMs.toFixed(1)+" ms · property changes: "+propertyHistory.length+" · port samples: "+portSampleHistory.length+" · button state: "+(buttonStats.last||"not reported");
+    $("batteryTrend").textContent=batterySamples.length?batterySamples.slice(-12).map(x=>x.value+"%").join(" → "):"No samples yet";
+    $("rssiTrend").textContent=rssiSamples.length?rssiSamples.slice(-12).map(x=>x.value).join(" → "):"No samples yet";
+    $("exportPortCsv").disabled=!portSampleHistory.length;
+    $("exportPortJson").disabled=!portSampleHistory.length;
+    $("exportPropertiesCsv").disabled=!healthProperties.size;
+    $("copyHealthJson").disabled=!lastHealthReport;
+  }
+  function updateModeBitmapView() {
+    const rows=[...portInfo.entries()].map(([id,p])=>{
+      const modes=mask=>Array.from({length:16},(_,i)=>i).filter(i=>Number(mask||0)&(1<<i)).join(", ")||"none";
+      return "Port "+id+" · inputs ["+modes(p.inputModes)+"] · outputs ["+modes(p.outputModes)+"]";
+    });
+    $("modeBitmapView").textContent=rows.join("\n")||"No port capability bitmaps received.";
+  }
+  function exportPortSamples(format) {
+    if(format==="json") downloadText("lego-mario-port-samples.json",JSON.stringify({generatedAt:new Date().toISOString(),samples:portSampleHistory},null,2),"application/json");
+    else {
+      const rows=[["timestamp","port","mode","hex","signedBytes"],...portSampleHistory.map(x=>[x.time,x.port,x.mode,x.hex,x.signedBytes])];
+      downloadText("lego-mario-port-samples.csv",rows.map(r=>r.map(csvCell).join(",")).join("\r\n"),"text/csv");
+    }
+  }
+  setInterval(updateSessionInsights,1000);
+
   let debugCaptureEnabled = true, debugStartedAt = Date.now();
   let healthRunning = false, healthNotificationCount = 0, healthModeAcks = 0, healthCombinedValues = 0, healthCombinedAcks = 0, lastHealthReport = null;
   function renderHealth() {
@@ -267,7 +349,10 @@ console.log("Requested hub details and sensor updates.");
     const {summary, rows} = lastHealthReport;
     $("healthSummary").textContent = summary.checks + " checks · " + summary.pass + " pass · " + summary.warning + " warning · " + summary.info + " info · " + summary.unavailable + " unavailable";
     const box = $("healthResults"); box.replaceChildren();
-    for (const item of rows) {
+    const query=($("healthSearch")?.value||"").trim().toLowerCase(), status=$("healthStatusFilter")?.value||"";
+    const visibleRows=rows.filter(item=>(!status||item.status===status)&&(!query||(item.name+" "+item.detail+" "+item.group).toLowerCase().includes(query)));
+    $("healthFilterSummary").textContent="Showing "+visibleRows.length+" of "+rows.length+" checks.";
+    for (const item of visibleRows) {
       const entry = document.createElement("div"), heading = document.createElement("strong"), detail = document.createElement("div");
       entry.className = "log-row"; heading.textContent = item.status + " · " + item.name; detail.textContent = item.detail;
       entry.append(heading, detail); box.append(entry);
@@ -360,6 +445,9 @@ console.log("Requested hub details and sensor updates.");
   function showPort(port, mode, data) {
     const info = portInfo.get(port) || {};
     info.latest = {mode, hex:hex(data), bytes:signedBytes(data)};
+    portSampleHistory.push({time:new Date().toISOString(),port,mode,hex:hex(data),signedBytes:signedBytes(data)});
+    if(portSampleHistory.length>1000)portSampleHistory.shift();
+    updateSessionInsights();
     portInfo.set(port, info);
     $("viewTitle").textContent = "Port " + port + " · mode " + mode;
     $("viewIcon").textContent = "▦";
@@ -461,6 +549,13 @@ console.log("Requested hub details and sensor updates.");
       else if (property === 12 && data.length) value = "Network ID " + data[0];
       else if (property === 15 && data.length) value = "Family " + data[0];
       healthProperties.set(property, value);
+      const previous=lastPropertyValues.get(property);
+      if(previous!==value) { propertyHistory.push({time:new Date().toISOString(),property,name:names[property]||("Property "+property),previous:previous??null,value}); if(propertyHistory.length>250)propertyHistory.shift(); }
+      lastPropertyValues.set(property,value);
+      if(property===2 && data.length) { const pressed=!!data[0]; const label=pressed?"pressed":"released"; if(buttonStats.last!==label){buttonStats[pressed?"pressed":"released"]++;buttonStats.last=label;} }
+      if(property===6 && data.length){batterySamples.push({time:new Date().toISOString(),value:data[0]});if(batterySamples.length>100)batterySamples.shift();}
+      if(property===5 && data.length){rssiSamples.push({time:new Date().toISOString(),value:data[0]>127?data[0]-256:data[0]});if(rssiSamples.length>100)rssiSamples.shift();}
+      updateSessionInsights();
       renderHealth();
       const hubBox = $("hubProperties");
       if (hubBox.firstElementChild?.classList.contains("muted")) hubBox.replaceChildren();
@@ -525,7 +620,7 @@ console.log("Requested hub details and sensor updates.");
         const outputModes = packet[9] | (packet[10] << 8);
         const info = portInfo.get(port) || {};
         Object.assign(info, {capabilities,modeCount,inputModes,outputModes});
-        portInfo.set(port, info);renderHealth();
+        portInfo.set(port, info);renderHealth();updateModeBitmapView();
         if (port === 4) {
           const inputIds=Array.from({length:16},(_,i)=>i).filter(i=>inputModes&(1<<i));
           const outputIds=Array.from({length:16},(_,i)=>i).filter(i=>outputModes&(1<<i));
@@ -1072,6 +1167,7 @@ console.log("Requested hub details and sensor updates.");
       log("TX · set speaker volume " + value + "% · 06 00 01 12 01 " + value.toString(16).padStart(2,"0").toUpperCase());
     } catch (e) { $("volumeStatus").textContent = "Volume was not sent: " + e.message; }
   }
+  $("refreshCoreProperties").disabled=false;
   $("runHealthCheck").addEventListener("click",async()=>{try{await runDeviceHealth();}catch(e){$("healthRunStatus").textContent=e.message;}});
   $("debugCaptureToggle").addEventListener("click",()=>{debugCaptureEnabled=!debugCaptureEnabled;$("debugCaptureToggle").textContent=debugCaptureEnabled?"Pause capture":"Resume capture";renderDebugPackets();});
   $("debugClear").addEventListener("click",clearDebugCapture);
@@ -1227,12 +1323,14 @@ console.log("Requested hub details and sensor updates.");
       setStatus("Connected · listening for sensor data", true);
       log("Connected to " + (device.name || "LEGO hub") + ". Listening for notifications.");
       debugStartedAt=Date.now();
-      portInfo.clear();
+      portInfo.clear();portSampleHistory.length=0;propertyHistory.length=0;batterySamples.length=0;rssiSamples.length=0;lastPropertyValues.clear();buttonStats.pressed=0;buttonStats.released=0;buttonStats.last=null;
+      updateSessionInsights();updateModeBitmapView();
       clearDebugCapture();
       activeModes.clear();healthProperties.clear();healthAlerts.clear();healthErrors.length=0;healthIoEvents.length=0;healthHubEvents.length=0;healthNotificationCount=0;healthModeAcks=0;healthCombinedValues=0;lastHealthReport=null;$("healthResults").innerHTML="<div class=\"muted\">Connected. Run diagnostics to collect a report.</div>";$("healthSummary").textContent="Ready for diagnostics";$("exportHealthReport").disabled=true;
       renderPorts();renderDebugPackets();
       $("challengeReadInfo").disabled=false;$("challengeReadValue").disabled=false;$("port4Inspect").disabled=false;
       $("challengeReadStatus").textContent="Connected · waiting for port samples";
+      $("refreshCoreProperties").disabled=false;updateSessionInsights();
       log("Waiting for attached-I/O messages. Port types and supported input modes are discovered from the hub.");
       try { await writePacket([0x05,0x00,0x01,0x12,0x05]); log("Requested speaker volume using Mario-specific extension 0x12 (confirmed by project testing)."); } catch (e) { log("Volume read request failed: " + e.message); }
       try { await requestHubInfo(); } catch (e) { log("Hub info request failed: " + e.message); }
@@ -1248,6 +1346,7 @@ console.log("Requested hub details and sensor updates.");
     characteristic = null;
     $("challengeReadInfo").disabled=true;$("challengeReadValue").disabled=true;$("port4Inspect").disabled=true;
     $("challengeReadStatus").textContent="Disconnected";
+    $("refreshCoreProperties").disabled=true;updateSessionInsights();
     $("deviceName").textContent = "";
     setStatus("Disconnected · tap Connect Mario to reconnect");
     log("Hub disconnected. Reconnect from this page; the LEGO app does not need to stay open.");
@@ -1272,6 +1371,36 @@ console.log("Requested hub details and sensor updates.");
       await readCurrentPortValue(4);
       $("port4OutputStatus").textContent = "Capability and current-value requests sent · awaiting replies";
     } catch (e) { $("port4OutputStatus").textContent = e.message; }
+  });
+  $("healthSearch").addEventListener("input",renderHealth);
+  $("healthStatusFilter").addEventListener("change",renderHealth);
+  $("checkBrowserBle").addEventListener("click",()=>{
+    const checks=[
+      ["Secure context",window.isSecureContext],
+      ["Web Bluetooth API",!!navigator.bluetooth],
+      ["Bluetooth requestDevice",!!navigator.bluetooth?.requestDevice],
+      ["Page visibility",document.visibilityState==="visible"]
+    ];
+    $("browserBleStatus").textContent=checks.map(([name,ok])=>(ok?"PASS · ":"UNAVAILABLE · ")+name).join("\n");
+  });
+  $("refreshCoreProperties").addEventListener("click",async()=>{
+    try { for(const p of [2,3,4,5,6,7,10,18]) { await writePacket([0x05,0x00,0x01,p,0x05]); await new Promise(r=>setTimeout(r,65)); } $("browserBleStatus").textContent="Requested button, firmware, hardware, RSSI, battery, battery type, LWP version and Mario volume properties."; }
+    catch(e){$("browserBleStatus").textContent="Refresh failed: "+e.message;}
+  });
+  $("exportPortCsv").addEventListener("click",()=>exportPortSamples("csv"));
+  $("exportPortJson").addEventListener("click",()=>exportPortSamples("json"));
+  $("exportPropertiesCsv").addEventListener("click",()=>{
+    const rows=[["propertyId","name","value"],...([...healthProperties.entries()].map(([id,value])=>[id,window.DeviceHealthDiagnostics.propertyNames[id]||("Property "+id),value]))];
+    downloadText("lego-mario-hub-properties.csv",rows.map(r=>r.map(csvCell).join(",")).join("\r\n"),"text/csv");
+  });
+  $("copyHealthJson").addEventListener("click",async()=>{
+    if(!lastHealthReport)return;
+    try{await navigator.clipboard.writeText(JSON.stringify(lastHealthReport,null,2));$("healthFilterSummary").textContent="Diagnostics JSON copied to clipboard.";}
+    catch(e){$("healthFilterSummary").textContent="Clipboard unavailable: "+e.message;}
+  });
+  $("exportSessionNotes").addEventListener("click",()=>{
+    const report=["LEGO Mario Monitor session notes","Exported: "+new Date().toISOString(),"Uptime: "+(Date.now()-sessionStartedAt)+" ms","Notifications: "+healthNotificationCount,"RX/TX: "+debugStats.rx+"/"+debugStats.tx,"Button transitions: "+JSON.stringify(buttonStats),"","Notes:",$("sessionNotes").value].join("\n");
+    downloadText("lego-mario-session-notes.txt",report);
   });
   $("sendPacket").addEventListener("click", sendCustomPacket);
   $("examplePacket").addEventListener("click", () => {
