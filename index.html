@@ -32,7 +32,7 @@
     <div><h1>LEGO Mario Monitor</h1><p class="sub">Live Bluetooth sensor monitor · read-only dashboard</p></div>
     <div class="actions"><button class="primary" id="connect">Connect Mario</button><button id="disconnect" disabled>Disconnect</button></div>
   </header>
-  <section class="status" aria-live="polite"><span class="dot" id="dot"></span><strong id="status">Not connected</strong><span class="muted" id="deviceName"></span></section>
+  <section class="status" aria-live="polite"><span class="dot" id="dot"></span><strong id="status">Not connected</strong><span class="muted" id="deviceName"></span></section>\n  <div class="warning" style="margin-top:-10px"><strong>Connect directly:</strong> Close or disconnect the official LEGO Mario app first, then open this page in Chrome (not an in-app browser) and tap <strong>Connect Mario</strong>. Choose your Mario figure in the Bluetooth picker. The website connects to the figure itself; the LEGO app does not need to stay open.</div>
   <section class="grid">
     <article class="card camera">
       <h2>Sensor view · not a camera</h2>
@@ -161,7 +161,7 @@
     }
     try {
       setStatus("Choose your LEGO hub…");
-      device = await navigator.bluetooth.requestDevice({acceptAllDevices:true, optionalServices:[SERVICE]});
+      device = await navigator.bluetooth.requestDevice({\n        filters: [{ services: [SERVICE] }],\n        optionalServices: [SERVICE]\n      });
       device.addEventListener("gattserverdisconnected", disconnected);
       setStatus("Connecting to " + (device.name || "LEGO hub") + "…");
       const server = await device.gatt.connect();
