@@ -55,6 +55,19 @@
       <p class="muted" id="sendStatus" aria-live="polite">Connect Mario before sending.</p>
       <div class="warning">Only send packets you understand. Output commands may activate motors or other connected devices. This sender accepts packets up to 20 bytes; it does not split larger packets.</div>
     </article>
+    <article class="card" style="grid-column:1/-1">
+      <h2>JavaScript console · Mario API</h2>
+      <p class="muted">Write JavaScript using the built-in <code>mario</code> library. Scripts run in an isolated browser frame and can only use the documented commands below.</p>
+      <label for="jsEditor" class="muted">JavaScript script</label>
+      <textarea id="jsEditor" rows="9" spellcheck="false" autocapitalize="off" autocomplete="off" style="display:block;width:100%;margin:7px 0 10px;padding:12px;border:1px solid #384258;border-radius:10px;background:#0e1119;color:#f3f6fc;font:13px/1.55 ui-monospace,monospace;resize:vertical">await mario.log("Hello from the Mario script!");
+await mario.subscribe(1, 0);
+</textarea>
+      <div class="actions"><button class="primary" id="runScript">Run script</button><button id="stopScript" disabled>Stop script</button><button id="exampleScript">Load example</button></div>
+      <p class="muted" id="scriptStatus" aria-live="polite">Ready. Connect Mario before using Bluetooth commands.</p>
+      <div class="readout" id="scriptOutput" aria-live="polite">Script output will appear here.</div>
+      <p class="muted">Library: <code>mario.log(text)</code>, <code>mario.delay(ms)</code>, <code>mario.subscribe(port, mode)</code>, <code>mario.requestPortInfo(port, infoType)</code>, <code>mario.sendHex(packet)</code>, <code>mario.displaytext(text)</code> (not implemented: display protocol unknown).</p>
+      <div class="warning">Only run scripts you wrote or understand. Scripts can send Bluetooth commands to the connected hub. <code>displaytext()</code> is included as a placeholder, but it will report that custom screen writing is not yet supported rather than pretending to change Mario's display.</div>
+    </article>
     <article class="card"><h2>Bluetooth packet log</h2><div class="log" id="log"><div class="muted">Packets will appear here after connecting.</div></div></article>
   </section>
   <div class="warning"><strong>Camera limitation:</strong> LEGO Mario does not expose a camera image stream. The “Sensor view” is an honest visualization of sensor packets, not a live video feed. Unknown values are shown as raw bytes rather than guessed.</div>
@@ -182,6 +195,151 @@
       button.disabled = !characteristic;
     }
   }
+  let scriptFrame = null;
+  let scriptCallId = 0;
+  const scriptPending = new Map();
+  function scriptOutput(message) {
+    const box = $("scriptOutput");
+    if (box.textContent === "Script output will appear here.") box.textContent = "";
+    box.textContent += (box.textContent ? "\\n" : "") + String(message);
+    box.scrollTop = box.scrollHeight;
+  }
+  function stopScript(message = "Script stopped.") {
+    if (scriptFrame) {
+      scriptPending.forEach(p => p.reject(new Error(message)));
+      scriptPending.clear();
+      scriptFrame.remove();
+      scriptFrame = null;
+    }
+    $("stopScript").disabled = true;
+    $("runScript").disabled = false;
+    $("scriptStatus").textContent = message;
+  }
+  function scriptReply(frame, id, ok, value) {
+    frame.contentWindow?.postMessage({ type: "mario-api-result", id, ok, value: String(value ?? "") }, "*");
+  }
+  async function handleScriptCall(frame, data) {
+    const { id, method, args = [] } = data;
+    try {
+      let result;
+      if (method === "log") {
+        result = String(args[0] ?? "");
+        scriptOutput(result);
+        log("SCRIPT · " + result);
+      } else if (method === "delay") {
+        const ms = Number(args[0]);
+        if (!Number.isFinite(ms) || ms < 0 || ms > 30000) throw new Error("delay must be between 0 and 30000 milliseconds.");
+        await new Promise(resolve => setTimeout(resolve, ms));
+        result = "delay complete";
+      } else if (method === "sendHex") {
+        if (!characteristic) throw new Error("Connect Mario before sending data.");
+        const bytes = parseHexPacket(String(args[0] ?? ""));
+        await writePacket(bytes);
+        log("SCRIPT TX · " + hex(bytes));
+        result = "Sent " + bytes.length + " bytes.";
+      } else if (method === "subscribe") {
+        const port = Number(args[0]), mode = Number(args[1] ?? 0);
+        if (!characteristic) throw new Error("Connect Mario before subscribing.");
+        if (!Number.isInteger(port) || port < 0 || port > 255 || !Number.isInteger(mode) || mode < 0 || mode > 255) throw new Error("port and mode must be integers from 0 to 255.");
+        await subscribe(port, mode);
+        activeModes.set(port, mode);
+        log("SCRIPT · requested notifications for port " + port + ", mode " + mode);
+        result = "Subscription request sent for port " + port + ", mode " + mode + ".";
+      } else if (method === "requestPortInfo") {
+        const port = Number(args[0]), infoType = Number(args[1] ?? 0);
+        if (!characteristic) throw new Error("Connect Mario before requesting port information.");
+        if (!Number.isInteger(port) || port < 0 || port > 255 || !Number.isInteger(infoType) || infoType < 0 || infoType > 255) throw new Error("port and infoType must be integers from 0 to 255.");
+        const bytes = [0x05, 0x00, 0x21, port, infoType];
+        await writePacket(bytes);
+        log("SCRIPT TX · " + hex(bytes));
+        result = "Port information request sent.";
+      } else if (method === "displaytext") {
+        throw new Error("Custom display text is not implemented. Mario's display output protocol has not been confirmed.");
+      } else {
+        throw new Error("Unknown mario command: " + method);
+      }
+      scriptReply(frame, id, true, result);
+    } catch (error) {
+      scriptReply(frame, id, false, error.message);
+    }
+  }
+  function runScript() {
+    if (scriptFrame) stopScript("Previous script replaced.");
+    $("scriptOutput").textContent = "";
+    $("scriptStatus").textContent = "Starting script…";
+    $("runScript").disabled = true;
+    $("stopScript").disabled = false;
+    const frame = document.createElement("iframe");
+    frame.title = "Isolated JavaScript runner";
+    frame.setAttribute("sandbox", "allow-scripts");
+    frame.style.display = "none";
+    scriptFrame = frame;
+    frame.srcdoc = `<!doctype html><meta charset="utf-8"><script>
+      (() => {
+        const pending = new Map();
+        let nextId = 1;
+        const call = (method, ...args) => new Promise((resolve, reject) => {
+          const id = nextId++;
+          pending.set(id, {resolve, reject});
+          parent.postMessage({type:"mario-api-call", id, method, args}, "*");
+        });
+        const mario = Object.freeze({
+          log: text => call("log", text),
+          delay: ms => call("delay", ms),
+          sendHex: packet => call("sendHex", packet),
+          subscribe: (port, mode = 0) => call("subscribe", port, mode),
+          requestPortInfo: (port, infoType = 0) => call("requestPortInfo", port, infoType),
+          displaytext: text => call("displaytext", text)
+        });
+        addEventListener("message", async event => {
+          const data = event.data;
+          if (data?.type === "mario-api-result") {
+            const task = pending.get(data.id);
+            if (!task) return;
+            pending.delete(data.id);
+            data.ok ? task.resolve(data.value) : task.reject(new Error(data.value));
+          } else if (data?.type === "run-mario-script") {
+            try {
+              const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+              await new AsyncFunction("mario", '"use strict";\\n' + data.code)(mario);
+              parent.postMessage({type:"mario-script-finished"}, "*");
+            } catch (error) {
+              parent.postMessage({type:"mario-script-error", error:String(error?.stack || error)}, "*");
+            }
+          }
+        });
+        parent.postMessage({type:"mario-script-ready"}, "*");
+      })();
+    <\/script>`;
+    document.body.appendChild(frame);
+    frame.addEventListener("load", () => {
+      if (scriptFrame !== frame) return;
+      frame.contentWindow.postMessage({ type: "run-mario-script", code: $("jsEditor").value }, "*");
+    }, { once: true });
+  }
+  window.addEventListener("message", event => {
+    const frame = scriptFrame;
+    if (!frame || event.source !== frame.contentWindow) return;
+    const data = event.data;
+    if (data?.type === "mario-api-call" && Number.isInteger(data.id) && typeof data.method === "string") {
+      handleScriptCall(frame, data);
+    } else if (data?.type === "mario-script-ready") {
+      $("scriptStatus").textContent = "Running…";
+    } else if (data?.type === "mario-script-finished") {
+      stopScript("Script finished.");
+      scriptOutput("✓ Script finished.");
+    } else if (data?.type === "mario-script-error") {
+      $("scriptStatus").textContent = "Script error";
+      scriptOutput(data.error);
+      stopScript("Script ended with an error.");
+    }
+  });
+  $("runScript").addEventListener("click", runScript);
+  $("stopScript").addEventListener("click", () => stopScript());
+  $("exampleScript").addEventListener("click", () => {
+    $("jsEditor").value = 'await mario.log("Starting LEGO Mario script");\\nawait mario.subscribe(1, 0);\\nawait mario.delay(500);\\nawait mario.requestPortInfo(1, 0);\\nawait mario.log("Commands sent. Check the Bluetooth packet log.");';
+    $("scriptStatus").textContent = "Example loaded. Connect Mario, then run it.";
+  });
   async function writePacket(bytes) {
     if (!characteristic) throw new Error("Not connected to the hub characteristic.");
     const data = new Uint8Array(bytes);
