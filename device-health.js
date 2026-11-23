@@ -92,6 +92,12 @@
       add("Port " + p.id + " capabilities", has(p.capabilities) ? "PASS" : "WAITING",
         has(p.capabilities) ? (caps.join(", ") || "No capability bits set") + "; " + (p.modeCount || 0) + " total mode(s)." : "Capability response not received.",
         "Ports");
+      if (p.inputFormat) add("Port " + p.id + " acknowledged input format", "INFO",
+        "Mode " + p.inputFormat.mode + " · delta interval " + p.inputFormat.deltaInterval + " · notifications " + (p.inputFormat.notificationsEnabled ? "enabled" : "disabled") + ".",
+        "Sensor configuration");
+      if (p.combinedInputFormat) add("Port " + p.id + " acknowledged combined format", "INFO",
+        "Combination index " + p.combinedInputFormat.combinationIndex + " · multi-update " + (p.combinedInputFormat.multiUpdate ? "enabled" : "disabled") + " · mode/data pointer 0x" + p.combinedInputFormat.modeDataPointer.toString(16).padStart(4,"0") + ".",
+        "Sensor configuration");
       const modes = p.modes || {};
       const modeIds = Object.keys(modes);
       const modeTotal = modeIds.length;
@@ -111,9 +117,9 @@
       }
     }
 
-    const modes = s.modeAcks || 0;
-    add("Input-format acknowledgements", modes ? "PASS" : "NO RESPONSE",
-      modes + " single/combined input-format acknowledgement(s) received.", "Sensor configuration");
+    const modes = s.modeAcks || 0, combinedAcks = s.combinedAcks || 0;
+    add("Input-format acknowledgements", modes || combinedAcks ? "PASS" : "NO RESPONSE",
+      modes + " single-mode and " + combinedAcks + " combined-mode input-format acknowledgement(s) received.", "Sensor configuration");
     add("Combined sensor value packets", s.combinedValues ? "PASS" : "NO DATA",
       (s.combinedValues || 0) + " combined-mode value packet(s) observed.", "Sensor data");
     const protocolFaults = (s.errors || []).filter(e => [3,4,7,8].includes(e.code));
@@ -277,6 +283,8 @@
         capturedErrors: errors.length, invalidPortInfoRequests: invalidPortQueries,
         singlePortValuePackets: ports.reduce((n,p) => n + (p.valueCount || 0), 0),
         combinedValuePackets: s.combinedValues || 0,
+        singleFormatAcks: modes,
+        combinedFormatAcks: combinedAcks,
         notificationPackets: s.notificationCount || 0,
         ioEvents: {attached:attachCount,detached:detachCount,virtualAttached:virtualCount}
       },
