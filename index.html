@@ -57,16 +57,21 @@
     </article>
     <article class="card" style="grid-column:1/-1">
       <h2>JavaScript console · Mario API</h2>
-      <p class="muted">Write JavaScript using the built-in <code>mario</code> library. Scripts run in an isolated browser frame and can only use the documented commands below.</p>
+      <p class="muted">Write ordinary JavaScript: variables, functions, arrays, loops, objects, classes, promises, async/await, try/catch and console logging work. The isolated runner exposes JavaScript built-ins plus the <code>mario</code> hardware library; it does not expose the page DOM.</p>
       <label for="jsEditor" class="muted">JavaScript script</label>
-      <textarea id="jsEditor" rows="9" spellcheck="false" autocapitalize="off" autocomplete="off" style="display:block;width:100%;margin:7px 0 10px;padding:12px;border:1px solid #384258;border-radius:10px;background:#0e1119;color:#f3f6fc;font:13px/1.55 ui-monospace,monospace;resize:vertical">await mario.log("Hello from the Mario script!");
-await mario.subscribe(1, 0);
+      <textarea id="jsEditor" rows="9" spellcheck="false" autocapitalize="off" autocomplete="off" style="display:block;width:100%;margin:7px 0 10px;padding:12px;border:1px solid #384258;border-radius:10px;background:#0e1119;color:#f3f6fc;font:13px/1.55 ui-monospace,monospace;resize:vertical">console.log("LEGO Mario script started");
+const ports = [0, 1, 2, 3];
+for (const port of ports) {
+  await mario.subscribe(port, 0);
+}
+await mario.getHubInfo();
+console.log("Requested hub details and sensor updates.");
 </textarea>
       <div class="actions"><button class="primary" id="runScript">Run script</button><button id="stopScript" disabled>Stop script</button><button id="exampleScript">Load example</button></div>
       <p class="muted" id="scriptStatus" aria-live="polite">Ready. Connect Mario before using Bluetooth commands.</p>
       <div class="readout" id="scriptOutput" aria-live="polite">Script output will appear here.</div>
-      <p class="muted">Library: <code>mario.log(text)</code>, <code>mario.delay(ms)</code>, <code>mario.subscribe(port, mode)</code>, <code>mario.requestPortInfo(port, infoType)</code>, <code>mario.sendHex(packet)</code>, <code>mario.displaytext(text)</code> (not implemented: display protocol unknown).</p>
-      <div class="warning">Only run scripts you wrote or understand. Scripts can send Bluetooth commands to the connected hub. <code>displaytext()</code> is included as a placeholder, but it will report that custom screen writing is not yet supported rather than pretending to change Mario's display.</div>
+      <p class="muted">Library: <code>mario.log(text)</code>, <code>mario.delay(ms)</code>, <code>mario.subscribe(port, mode, delta?)</code>, <code>mario.unsubscribe(port, mode)</code>, <code>mario.readPort(port)</code>, <code>mario.requestPortInfo(port, infoType)</code>, <code>mario.requestPortModeInfo(port, mode, infoType)</code>, <code>mario.requestHubProperty(property)</code>, <code>mario.getHubInfo()</code>, <code>mario.getBatteryLevel()</code>, <code>mario.getFirmwareVersion()</code>, <code>mario.getHardwareVersion()</code>, <code>mario.getRSSI()</code>, <code>mario.sendHex(packet)</code>, <code>mario.disconnect()</code>.</p>
+      <div class="warning">Scripts can send Bluetooth commands to the connected hub. <code>mario.displaytext(text)</code> remains unavailable: LEGO's published protocol does not document a custom-text display command for Mario. The runner reports this clearly instead of sending an unverified command.</div>
     </article>
     <article class="card"><h2>Bluetooth packet log</h2><div class="log" id="log"><div class="muted">Packets will appear here after connecting.</div></div></article>
   </section>
@@ -129,7 +134,23 @@ await mario.subscribe(1, 0);
   function parsePacket(packet) {
     if (packet.length < 3) { log("Short packet: " + hex(packet)); return; }
     const hub = packet[1], type = packet[2];
-    if (type === 0x45 && packet.length >= 5) {
+    if (type === 0x01 && packet.length >= 5) {
+      const property = packet[3], operation = packet[4], data = packet.slice(5);
+      const names = {1:"Hub name",2:"Button",3:"Firmware version",4:"Hardware version",5:"RSSI",6:"Battery level",7:"Battery type",8:"Manufacturer",9:"Radio firmware",10:"LWP version",11:"System type"};
+      let value = hex(data);
+      if ([1,8,9].includes(property)) value = decoder.decode(new Uint8Array(data)).replace(/\0/g,"");
+      else if (property === 6 && data.length) value = data[0] + "%";
+      else if (property === 5 && data.length) value = (data[0] > 127 ? data[0]-256 : data[0]) + " RSSI units";
+      else if (property === 2 && data.length) value = data[0] ? "pressed" : "released";
+      log("Hub property · " + (names[property] || ("0x"+property.toString(16))) + " · operation 0x" + operation.toString(16) + " · " + value);
+    } else if (type === 0x03 && packet.length >= 5) {
+      log("Hub alert · type 0x" + packet[3].toString(16) + " · status " + (packet[4] === 0xFF ? "ALERT" : "OK"));
+    } else if (type === 0x04 && packet.length >= 5) {
+      const event = packet[4];
+      log("Hub I/O · port " + packet[3] + " · " + (event === 0 ? "detached" : event === 1 ? "attached" : "virtual attached") + (packet.length >= 7 ? " · IO type 0x" + (packet[5] | (packet[6] << 8)).toString(16) : ""));
+    } else if (type === 0x05 && packet.length >= 5) {
+      log("Hub error/ack · command 0x" + packet[3].toString(16) + " · code 0x" + packet[4].toString(16));
+    } else if (type === 0x45 && packet.length >= 5) {
       const port = packet[3], data = packet.slice(4);
       showPort(port, activeModes.get(port) ?? "unknown", data, packet);
       log("Hub " + hub + " · Port Value (0x45) · port " + port + " · " + hex(data));
@@ -246,14 +267,49 @@ await mario.subscribe(1, 0);
         activeModes.set(port, mode);
         log("SCRIPT · requested notifications for port " + port + ", mode " + mode);
         result = "Subscription request sent for port " + port + ", mode " + mode + ".";
-      } else if (method === "requestPortInfo") {
-        const port = Number(args[0]), infoType = Number(args[1] ?? 0);
+      } else if (method === "requestPortInfo" || method === "readPort") {
+        const port = Number(args[0]), infoType = method === "readPort" ? 0 : Number(args[1] ?? 0);
         if (!characteristic) throw new Error("Connect Mario before requesting port information.");
-        if (!Number.isInteger(port) || port < 0 || port > 255 || !Number.isInteger(infoType) || infoType < 0 || infoType > 255) throw new Error("port and infoType must be integers from 0 to 255.");
+        if (!Number.isInteger(port) || port < 0 || port > 255 || !Number.isInteger(infoType) || infoType < 0 || infoType > 2) throw new Error("port must be 0–255 and infoType must be 0, 1 or 2.");
         const bytes = [0x05, 0x00, 0x21, port, infoType];
         await writePacket(bytes);
         log("SCRIPT TX · " + hex(bytes));
-        result = "Port information request sent.";
+        result = "Port information request sent; inspect the packet log for the response.";
+      } else if (method === "requestPortModeInfo") {
+        const port = Number(args[0]), mode = Number(args[1]), infoType = Number(args[2] ?? 0);
+        if (!characteristic) throw new Error("Connect Mario before requesting port mode information.");
+        if (![port,mode,infoType].every(Number.isInteger) || port < 0 || port > 255 || mode < 0 || mode > 255 || infoType < 0 || infoType > 128) throw new Error("Invalid port, mode or infoType.");
+        const bytes = [0x06,0x00,0x22,port,mode,infoType];
+        await writePacket(bytes);
+        log("SCRIPT TX · " + hex(bytes));
+        result = "Port mode information request sent.";
+      } else if (method === "requestHubProperty") {
+        const property = Number(args[0]);
+        if (!characteristic) throw new Error("Connect Mario before requesting hub properties.");
+        if (!Number.isInteger(property) || property < 1 || property > 15) throw new Error("Hub property must be an integer from 1 to 15.");
+        const bytes = [0x05,0x00,0x01,property,0x05];
+        await writePacket(bytes);
+        log("SCRIPT TX · " + hex(bytes));
+        result = "Hub property request sent; inspect the packet log for the response.";
+      } else if (method === "getHubInfo") {
+        if (!characteristic) throw new Error("Connect Mario before requesting hub information.");
+        for (const property of [3,4,5,6,7,8,9,10,11]) {
+          const bytes = [0x05,0x00,0x01,property,0x05];
+          await writePacket(bytes);
+          await new Promise(resolve => setTimeout(resolve, 70));
+        }
+        result = "Requested firmware, hardware, RSSI, battery, manufacturer, radio firmware, protocol and system information.";
+        log("SCRIPT · requested standard hub properties.");
+      } else if (method === "unsubscribe") {
+        const port = Number(args[0]), mode = Number(args[1] ?? 0);
+        if (!characteristic) throw new Error("Connect Mario before unsubscribing.");
+        if (![port,mode].every(Number.isInteger) || port < 0 || port > 255 || mode < 0 || mode > 255) throw new Error("port and mode must be integers from 0 to 255.");
+        await subscribe(port,mode,1,false);
+        activeModes.delete(port);
+        result = "Notification subscription disabled for port " + port + ".";
+      } else if (method === "disconnect") {
+        if (device?.gatt?.connected) device.gatt.disconnect();
+        result = "Disconnected from the hub.";
       } else if (method === "displaytext") {
         throw new Error("Custom display text is not implemented. Mario's display output protocol has not been confirmed.");
       } else {
@@ -284,14 +340,34 @@ await mario.subscribe(1, 0);
           pending.set(id, {resolve, reject});
           parent.postMessage({type:"mario-api-call", id, method, args}, "*");
         });
+        const format = args => args.map(value => typeof value === "string" ? value : (() => { try { return JSON.stringify(value); } catch { return String(value); } })()).join(" ");
+        const consoleBridge = Object.freeze({
+          log: (...args) => call("log", format(args)),
+          info: (...args) => call("log", "[INFO] " + format(args)),
+          warn: (...args) => call("log", "[WARN] " + format(args)),
+          error: (...args) => call("log", "[ERROR] " + format(args)),
+          debug: (...args) => call("log", "[DEBUG] " + format(args))
+        });
         const mario = Object.freeze({
           log: text => call("log", text),
           delay: ms => call("delay", ms),
           sendHex: packet => call("sendHex", packet),
-          subscribe: (port, mode = 0) => call("subscribe", port, mode),
+          subscribe: (port, mode = 0, delta = 1) => call("subscribe", port, mode, delta),
+          unsubscribe: (port, mode = 0) => call("unsubscribe", port, mode),
+          readPort: port => call("readPort", port),
           requestPortInfo: (port, infoType = 0) => call("requestPortInfo", port, infoType),
+          requestPortModeInfo: (port, mode, infoType = 0) => call("requestPortModeInfo", port, mode, infoType),
+          requestHubProperty: property => call("requestHubProperty", property),
+          getHubInfo: () => call("getHubInfo"),
+          getBatteryLevel: () => call("requestHubProperty", 6),
+          getFirmwareVersion: () => call("requestHubProperty", 3),
+          getHardwareVersion: () => call("requestHubProperty", 4),
+          getRSSI: () => call("requestHubProperty", 5),
+          disconnect: () => call("disconnect"),
           displaytext: text => call("displaytext", text)
         });
+        globalThis.console = consoleBridge;
+        globalThis.print = (...args) => consoleBridge.log(...args);
         addEventListener("message", async event => {
           const data = event.data;
           if (data?.type === "mario-api-result") {
@@ -338,7 +414,7 @@ await mario.subscribe(1, 0);
   $("runScript").addEventListener("click", runScript);
   $("stopScript").addEventListener("click", () => stopScript());
   $("exampleScript").addEventListener("click", () => {
-    $("jsEditor").value = 'await mario.log("Starting LEGO Mario script");\\nawait mario.subscribe(1, 0);\\nawait mario.delay(500);\\nawait mario.requestPortInfo(1, 0);\\nawait mario.log("Commands sent. Check the Bluetooth packet log.");';
+    $("jsEditor").value = 'console.log("Starting LEGO Mario script");\\nconst ports = [0, 1, 2, 3];\\nfor (const port of ports) {\\n  await mario.subscribe(port, 0);\\n}\\nawait mario.getHubInfo();\\nawait mario.requestPortModeInfo(1, 0, 0);\\nconsole.log("Requests sent. Check the Bluetooth packet log for replies.");';
     $("scriptStatus").textContent = "Example loaded. Connect Mario, then run it.";
   });
   async function writePacket(bytes) {
@@ -347,9 +423,11 @@ await mario.subscribe(1, 0);
     if (characteristic.writeValueWithoutResponse) await characteristic.writeValueWithoutResponse(data);
     else await characteristic.writeValue(data);
   }
-  async function subscribe(port, mode) {
-    // LWP 0x41: single-mode input setup, delta interval 1, notifications enabled.
-    await writePacket([0x0A,0x00,0x41,port,mode,0x01,0x00,0x00,0x00,0x01]);
+  async function subscribe(port, mode, deltaInterval = 1, enabled = true) {
+    // LWP 0x41: single-mode input setup; delta interval is a little-endian UInt32.
+    const delta = Number(deltaInterval);
+    if (!Number.isInteger(delta) || delta < 0 || delta > 0xFFFFFFFF) throw new Error("deltaInterval must be a UInt32.");
+    await writePacket([0x0A,0x00,0x41,port,mode,delta & 255,(delta >>> 8) & 255,(delta >>> 16) & 255,(delta >>> 24) & 255,enabled ? 1 : 0]);
     await new Promise(resolve => setTimeout(resolve, 90));
   }
   async function connect() {
