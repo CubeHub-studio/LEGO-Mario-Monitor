@@ -1167,7 +1167,6 @@ console.log("Requested hub details and sensor updates.");
       log("TX · set speaker volume " + value + "% · 06 00 01 12 01 " + value.toString(16).padStart(2,"0").toUpperCase());
     } catch (e) { $("volumeStatus").textContent = "Volume was not sent: " + e.message; }
   }
-  $("refreshCoreProperties").disabled=false;
   $("runHealthCheck").addEventListener("click",async()=>{try{await runDeviceHealth();}catch(e){$("healthRunStatus").textContent=e.message;}});
   $("debugCaptureToggle").addEventListener("click",()=>{debugCaptureEnabled=!debugCaptureEnabled;$("debugCaptureToggle").textContent=debugCaptureEnabled?"Pause capture":"Resume capture";renderDebugPackets();});
   $("debugClear").addEventListener("click",clearDebugCapture);
