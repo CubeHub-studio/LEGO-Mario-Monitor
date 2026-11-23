@@ -155,13 +155,16 @@
   }
   async function connect() {
     if (!navigator.bluetooth) {
-      setStatus("Web Bluetooth is unavailable in this browser.");
-      log("Try Chrome on Android or desktop Chrome/Edge over HTTPS.");
+      setStatus("Bluetooth is unavailable in this browser.");
+      log("Open this HTTPS page directly in Google Chrome on Android or Chrome/Edge on desktop. In-app browsers may not support Web Bluetooth.");
       return;
     }
     try {
       setStatus("Choose your LEGO hub…");
-      device = await navigator.bluetooth.requestDevice({\n        filters: [{ services: [SERVICE] }],\n        optionalServices: [SERVICE]\n      });
+      device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE] }],
+        optionalServices: [SERVICE]
+      });
       device.addEventListener("gattserverdisconnected", disconnected);
       setStatus("Connecting to " + (device.name || "LEGO hub") + "…");
       const server = await device.gatt.connect();
@@ -181,16 +184,17 @@
       log("Subscription requests sent. Move Mario over a tile or move the figure to generate readings.");
     } catch (error) {
       if (error.name === "NotFoundError") setStatus("No device selected.");
+      else if (error.name === "NetworkError") setStatus("Could not connect. Close the LEGO app and try again.");
       else setStatus("Connection failed: " + error.message);
-      log("Bluetooth error: " + error.message);
+      log("Bluetooth error: " + error.message + ". Check that the LEGO app is disconnected and Mario is awake.");
       if (device?.gatt?.connected) device.gatt.disconnect();
     }
   }
   function disconnected() {
     characteristic = null;
     $("deviceName").textContent = "";
-    setStatus("Disconnected");
-    log("Hub disconnected.");
+    setStatus("Disconnected · tap Connect Mario to reconnect");
+    log("Hub disconnected. Reconnect from this page; the LEGO app does not need to stay open.");
   }
   function disconnect() {
     if (device?.gatt?.connected) device.gatt.disconnect();
