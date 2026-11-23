@@ -203,7 +203,7 @@ console.log("Requested hub details and sensor updates.");
   const decoder = new TextDecoder();
   const healthProperties = new Map();
   const healthAlerts = new Map();
-  const healthErrors = [];
+  const healthErrors = [], healthIoEvents = [], healthHubEvents = [];
   let healthRunning = false, healthNotificationCount = 0, healthModeAcks = 0, healthCombinedValues = 0, lastHealthReport = null;
   function renderHealth() {
     const snapshot = {
@@ -211,12 +211,12 @@ console.log("Requested hub details and sensor updates.");
       properties: Object.fromEntries(healthProperties),
       alerts: Object.fromEntries(healthAlerts),
       ports: [...portInfo.entries()].map(([id, p]) => ({id, ...p})),
-      errors: healthErrors.slice(), notificationCount: healthNotificationCount,
+      errors: healthErrors.slice(), ioEvents: healthIoEvents.slice(), hubEvents: healthHubEvents.slice(), notificationCount: healthNotificationCount,
       modeAcks: healthModeAcks, combinedValues: healthCombinedValues
     };
     lastHealthReport = window.DeviceHealthDiagnostics.buildReport(snapshot);
     const {summary, rows} = lastHealthReport;
-    $("healthSummary").textContent = summary.checks + " checks · " + summary.pass + " pass · " + summary.warning + " warning · " + summary.unavailable + " unavailable";
+    $("healthSummary").textContent = summary.checks + " checks · " + summary.pass + " pass · " + summary.warning + " warning · " + summary.info + " info · " + summary.unavailable + " unavailable";
     const box = $("healthResults"); box.replaceChildren();
     for (const item of rows) {
       const entry = document.createElement("div"), heading = document.createElement("strong"), detail = document.createElement("div");
@@ -230,7 +230,7 @@ console.log("Requested hub details and sensor updates.");
     if(healthRunning)return;
     healthRunning=true;$("runHealthCheck").disabled=true;$("exportHealthReport").disabled=true;$("healthProgress").style.width="2%";
     $("healthRunStatus").textContent="Requesting all standard hub properties and alert states...";
-    healthProperties.clear();healthAlerts.clear();healthErrors.length=0;healthNotificationCount=0;healthModeAcks=0;healthCombinedValues=0;
+    healthProperties.clear();healthAlerts.clear();healthErrors.length=0;healthIoEvents.length=0;healthHubEvents.length=0;healthNotificationCount=0;healthModeAcks=0;healthCombinedValues=0;
     renderHealth();
     try{
       await requestHubInfo(); $("healthProgress").style.width="12%";
@@ -357,6 +357,11 @@ console.log("Requested hub details and sensor updates.");
       const oldRow = hubBox.querySelector('[data-property="' + property + '"]');
       if (oldRow) oldRow.replaceWith(propertyRow); else hubBox.append(propertyRow);
       log("Hub property · " + (names[property] || ("0x"+property.toString(16))) + " · operation 0x" + operation.toString(16) + " · " + value);
+    } else if (type === 0x02 && packet.length >= 4) {
+      const action=packet[3], labels={0x30:"Hub will switch off",0x31:"Hub will disconnect",0x32:"Hub will enter boot mode"};
+      healthHubEvents.push({action,label:labels[action]||("Hub action event 0x"+action.toString(16))});
+      if(healthHubEvents.length>30)healthHubEvents.shift();renderHealth();
+      log("Hub action notification · "+(labels[action]||("action 0x"+action.toString(16))));
     } else if (type === 0x03 && packet.length >= 5) {
       healthAlerts.set(packet[3], packet[4] === 0xFF);
       renderHealth();
@@ -364,17 +369,23 @@ console.log("Requested hub details and sensor updates.");
     } else if (type === 0x04 && packet.length >= 5) {
       const port = packet[3], event = packet[4];
       const ioType = packet.length >= 7 ? packet[5] | (packet[6] << 8) : null;
-      log("Hub I/O · port " + port + " · " + (event === 0 ? "detached" : event === 1 ? "attached" : "virtual attached") + (ioType != null ? " · IO type 0x" + ioType.toString(16).toUpperCase() : ""));
+      const eventName=event===0?"detached":event===1?"attached":"virtual attached";
+      healthIoEvents.push({port,event:eventName,ioType,virtualPorts:event===2&&packet.length>=9?[packet[7],packet[8]]:undefined});
+      if(healthIoEvents.length>60)healthIoEvents.shift();renderHealth();
+      log("Hub I/O · port " + port + " · " + eventName + (ioType != null ? " · IO type 0x" + ioType.toString(16).toUpperCase() : ""));
       if (event === 0) {
         portInfo.delete(port);
         activeModes.delete(port);
         renderPorts();
       } else if (event === 1) {
-        portInfo.set(port, {ioType});
+        const versionHex=(start)=>packet.length>=start+4?hex(packet.slice(start,start+4)):"not supplied";
+        portInfo.set(port, {ioType,hardwareRevision:versionHex(7),softwareRevision:versionHex(11)});
         renderPorts();
         requestPortInfo(port, 1).catch(error => log("Port " + port + " info request failed: " + error.message));
       } else {
-        log("Virtual-port attachment detected; raw packet retained in the log.");
+        if(packet.length>=9)portInfo.set(port,{ioType,virtualPorts:[packet[7],packet[8]]});
+        log("Virtual-port attachment detected; source ports "+(packet.length>=9?packet[7]+" and "+packet[8]:"not supplied")+".");
+        renderPorts();
       }
     } else if (type === 0x05 && packet.length >= 5) {
       healthErrors.push({command:packet[3],code:packet[4]});
@@ -1076,7 +1087,7 @@ console.log("Requested hub details and sensor updates.");
       setStatus("Connected · listening for sensor data", true);
       log("Connected to " + (device.name || "LEGO hub") + ". Listening for notifications.");
       portInfo.clear();
-      activeModes.clear();healthProperties.clear();healthAlerts.clear();healthErrors.length=0;healthNotificationCount=0;healthModeAcks=0;healthCombinedValues=0;lastHealthReport=null;$("healthResults").innerHTML="<div class=\"muted\">Connected. Run diagnostics to collect a report.</div>";$("healthSummary").textContent="Ready for diagnostics";$("exportHealthReport").disabled=true;
+      activeModes.clear();healthProperties.clear();healthAlerts.clear();healthErrors.length=0;healthIoEvents.length=0;healthHubEvents.length=0;healthNotificationCount=0;healthModeAcks=0;healthCombinedValues=0;lastHealthReport=null;$("healthResults").innerHTML="<div class=\"muted\">Connected. Run diagnostics to collect a report.</div>";$("healthSummary").textContent="Ready for diagnostics";$("exportHealthReport").disabled=true;
       renderPorts();
       log("Waiting for attached-I/O messages. Port types and supported input modes are discovered from the hub.");
       try { await writePacket([0x05,0x00,0x01,0x12,0x05]); log("Requested speaker volume using Mario-specific extension 0x12 (confirmed by project testing)."); } catch (e) { log("Volume read request failed: " + e.message); }
