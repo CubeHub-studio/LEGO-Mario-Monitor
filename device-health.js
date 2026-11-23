@@ -139,7 +139,7 @@
     // Deeper, derived checks. These are interpretations of received data, not extra
     // hardware tests; unknown or absent values remain explicitly inconclusive.
     const numeric = (value) => {
-      const match = has(value) ? String(value).match(/-?\\d+(?:\\.\\d+)?/) : null;
+      const match = has(value) ? String(value).match(/-?\d+(?:\.\d+)?/) : null;
       return match ? Number(match[0]) : NaN;
     };
     const batteryPct = numeric(props[6]);
