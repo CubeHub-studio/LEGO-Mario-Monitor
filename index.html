@@ -314,6 +314,9 @@ console.log("Requested hub details and sensor updates.");
     if (bytes[0] !== bytes.length) {
       throw new Error("Length byte mismatch: first byte must be " + bytes.length.toString(16).padStart(2, "0").toUpperCase() + " for this packet.");
     }
+    if ([0x10,0x11,0x12,0x13].includes(bytes[2])) {
+      throw new Error("Firmware-update and bootloader protocol messages are blocked by this monitor for safety.");
+    }
     return bytes;
   }
   async function sendCustomPacket() {
