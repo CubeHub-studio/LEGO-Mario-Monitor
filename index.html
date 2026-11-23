@@ -32,20 +32,17 @@
     <div><h1>LEGO Mario Monitor</h1><p class="sub">Live Bluetooth sensor monitor · JavaScript scripting</p></div>
     <div class="actions"><button class="primary" id="connect">Connect Mario</button><button id="disconnect" disabled>Disconnect</button></div>
   </header>
-  <section class="status" aria-live="polite"><span class="dot" id="dot"></span><strong id="status">Not connected</strong><span class="muted" id="deviceName"></span></section>\n  <div class="warning" style="margin-top:-10px"><strong>Connect directly:</strong> Close or disconnect the official LEGO Mario app first, then open this page in Chrome (not an in-app browser) and tap <strong>Connect Mario</strong>. Choose your Mario figure in the Bluetooth picker. The website connects to the figure itself; the LEGO app does not need to stay open.</div>
+  <section class="status" aria-live="polite"><span class="dot" id="dot"></span><strong id="status">Not connected</strong><span class="muted" id="deviceName"></span></section>
+  <div class="warning" style="margin-top:-10px"><strong>Connect directly:</strong> Close or disconnect the official LEGO Mario app first, then open this page in Chrome (not an in-app browser) and tap <strong>Connect Mario</strong>. Choose your Mario figure in the Bluetooth picker. The website connects to the figure itself; the LEGO app does not need to stay open.</div>
   <section class="grid">
     <article class="card camera">
-      <h2>Sensor view · not a camera</h2>
+      <h2>Sensor data · live raw values</h2>
       <div class="sensor-view">
-        <div class="view-inner"><div class="view-icon" id="viewIcon">◎</div><div class="view-label" id="viewTitle">Waiting for sensor data</div><div class="view-note" id="viewNote">Mario has no camera. This panel visualizes the latest colour/barcode sensor packet; it cannot show a picture of the room.</div></div>
+        <div class="view-inner"><div class="view-icon" id="viewIcon">◎</div><div class="view-label" id="viewTitle">Waiting for attached-port data</div><div class="view-note" id="viewNote">Ports are discovered from LEGO's attached-I/O messages. Values are shown as received; this is not a camera feed.</div></div>
       </div>
-      <p class="muted">Latest colour / barcode input · Port 1 · IO type 0x49</p>
-      <div class="readout" id="colourValue">No data received</div>
+      <p class="muted">No sensor type or port number is assumed. Port metadata is requested from the hub.</p>
+      <div id="portList" class="log"><div class="muted">Connect to discover ports.</div></div>
     </article>
-    <article class="card"><h2>Movement sensor</h2><div class="metric" id="movementState">Waiting…</div><div class="muted">Port 0 · IO type 0x47 · modes 0–1</div><div class="readout" id="movementValue">No data received</div></article>
-    <article class="card"><h2>Pants / accessory sensor</h2><div class="metric" id="pantsState">Waiting…</div><div class="muted">Port 2 · IO type 0x4A · mode 0</div><div class="readout" id="pantsValue">No data received</div></article>
-    <article class="card"><h2>Events / debug</h2><div class="metric" id="eventsState">Waiting…</div><div class="muted">Port 3 · IO type 0x46 · modes 0–3</div><div class="readout" id="eventsValue">No data received</div></article>
-    <article class="card"><h2>Port 4 · unknown device</h2><div class="metric" id="port4State">Waiting…</div><div class="muted">IO type 0x55 · FS Code / Events</div><div class="readout" id="port4Value">No data received</div></article>
     <article class="card">
       <h2>Send data · Bluetooth</h2>
       <p class="muted">Send one complete LEGO Wireless Protocol packet as hexadecimal bytes, including its length byte and hub ID.</p>
@@ -70,14 +67,14 @@ console.log("Requested hub details and sensor updates.");
       <div class="actions"><button class="primary" id="runScript">Run script</button><button id="stopScript" disabled>Stop script</button><button id="exampleScript">Load example</button></div>
       <p class="muted" id="scriptStatus" aria-live="polite">Ready. Connect Mario before using Bluetooth commands.</p>
       <div class="readout" id="scriptOutput" aria-live="polite">Script output will appear here.</div>
-      <p class="muted">Library: <code>mario.log(text)</code>, <code>mario.delay(ms)</code>, <code>mario.subscribe(port, mode, delta?)</code>, <code>mario.unsubscribe(port, mode)</code>, <code>mario.readPort(port)</code>, <code>mario.requestPortInfo(port, infoType)</code>, <code>mario.requestPortModeInfo(port, mode, infoType)</code>, <code>mario.requestHubProperty(property)</code>, <code>mario.getHubInfo()</code>, <code>mario.requestBatteryLevel()</code>, <code>mario.requestFirmwareVersion()</code>, <code>mario.requestHardwareVersion()</code>, <code>mario.requestRSSI()</code>, <code>mario.setVolume(0..100)</code>, <code>mario.restart()</code>, <code>mario.requestButtonState()</code>, <code>mario.setBusyIndicator(enabled)</code>, <code>mario.enableBatteryUpdates()</code>, <code>mario.disableBatteryUpdates()</code>, <code>mario.sendHex(packet)</code>, <code>mario.disconnect()</code>.</p>
-      <div class="warning">Scripts can send Bluetooth commands to the connected hub. <code>mario.displaytext(text)</code> remains unavailable: LEGO's published protocol does not document a custom-text display command for Mario. The runner reports this clearly instead of sending an unverified command.</div>
+      <p class="muted">Library: <code>mario.log(text)</code>, <code>mario.delay(ms)</code>, <code>mario.subscribe(port, mode, delta?)</code>, <code>mario.unsubscribe(port, mode)</code>, <code>mario.readPort(port)</code>, <code>mario.requestPortInfo(port, infoType)</code>, <code>mario.requestPortModeInfo(port, mode, infoType)</code>, <code>mario.requestHubProperty(property)</code>, <code>mario.getHubInfo()</code>, <code>mario.requestBatteryLevel()</code>, <code>mario.requestFirmwareVersion()</code>, <code>mario.requestHardwareVersion()</code>, <code>mario.requestRSSI()</code>, <code>mario.setVolume(0..100)</code>, <code>mario.requestButtonState()</code>, <code>mario.setBusyIndicator(enabled)</code>, <code>mario.enableBatteryUpdates()</code>, <code>mario.disableBatteryUpdates()</code>, <code>mario.sendHex(packet)</code>, <code>mario.disconnect()</code>.</p>
+      <div class="warning">Scripts can send Bluetooth commands to the connected hub. The volume API uses Mario's separately verified extension. <code>mario.displaytext(text)</code> remains unavailable: LEGO's published protocol does not document a custom-text display command for Mario.</div>
     </article>
     <article class="card"><h2>Hub controls</h2>
       <p class="muted">Hub actions and status requests.</p>
-      <div class="actions"><button id="busyOn" disabled>Busy indicator on</button><button id="busyOff" disabled>Busy indicator off</button><button id="refreshInfo" disabled>Refresh hub info</button><button id="buttonState" disabled>Check hub button</button><button id="restartMario" disabled>Restart Mario</button></div>
+      <div class="actions"><button id="busyOn" disabled>Busy indicator on</button><button id="busyOff" disabled>Busy indicator off</button><button id="refreshInfo" disabled>Refresh hub info</button><button id="buttonState" disabled>Check hub button</button></div>
       <p class="muted" id="hubControlStatus">Connect Mario to enable hub controls.</p>
-      <div class="warning">Restart uses reverse-engineered Hub Action 0x07. It may not be supported by every Mario firmware and is not a factory reset.</div>
+      <div class="muted">Only documented hub actions are exposed here. The published protocol does not define a general restart action.</div>
     </article>
     <article class="card"><h2>Volume · Mario speaker</h2>
       <div class="control-row"><input id="volumeSlider" class="range" type="range" min="0" max="100" step="1" value="50" disabled aria-label="Mario speaker volume"><output id="volumeValue" for="volumeSlider">50%</output></div>
@@ -104,6 +101,7 @@ console.log("Requested hub details and sensor updates.");
   const $ = id => document.getElementById(id);
   let device = null, characteristic = null;
   const activeModes = new Map();
+  const portInfo = new Map();
   const decoder = new TextDecoder();
 
   function setStatus(text, connected=false) {
@@ -112,7 +110,7 @@ console.log("Requested hub details and sensor updates.");
     $("connect").disabled = connected;
     $("disconnect").disabled = !connected;
     $("sendPacket").disabled = !connected;
-    for (const id of ["busyOn","busyOff","refreshInfo","buttonState","restartMario","readVolume","setVolume","volumeSlider"]) $(id).disabled = !connected;
+    for (const id of ["busyOn","busyOff","refreshInfo","buttonState","readVolume","setVolume","volumeSlider"]) $(id).disabled = !connected;
   }
   function hex(bytes) { return [...bytes].map(v=>v.toString(16).padStart(2,"0").toUpperCase()).join(" "); }
   function signedBytes(bytes) { return [...bytes].map(v=>v>127?v-256:v).join(", "); }
@@ -125,30 +123,38 @@ console.log("Requested hub details and sensor updates.");
     box.prepend(row);
     while (box.children.length > 60) box.lastElementChild.remove();
   }
-  function showPort(port, mode, data, fullPacket) {
-    const bytes = data.slice();
-    const value = "mode " + mode + " · HEX: " + (hex(bytes) || "(empty)") + " · bytes: [" + signedBytes(bytes) + "]";
-    if (port === 0) {
-      $("movementState").textContent = "Port 0 · mode " + mode;
-      $("movementValue").textContent = value;
-    } else if (port === 1) {
-      $("colourValue").textContent = value;
-      $("viewTitle").textContent = "Sensor packet received";
-      $("viewIcon").textContent = "▦";
-      $("viewNote").textContent = "Port 1 data is shown exactly as received. The packet has not been interpreted as an image.";
-      $("viewIcon").style.color = "#ffcf35";
-    } else if (port === 2) {
-      $("pantsState").textContent = "Port 2 · mode " + mode;
-      $("pantsValue").textContent = value;
-    } else if (port === 3) {
-      $("eventsState").textContent = "Port 3 · mode " + mode;
-      $("eventsValue").textContent = value;
-    } else if (port === 4) {
-      $("port4State").textContent = "Port 4 · mode " + mode;
-      $("port4Value").textContent = value;
-    } else {
-      log("Port " + port + " mode " + mode + ": " + hex(bytes));
+  function renderPorts() {
+    const box = $("portList");
+    if (!portInfo.size) {
+      const empty = document.createElement("div");
+      empty.className = "muted";
+      empty.textContent = "No attached ports have been reported yet.";
+      box.replaceChildren(empty);
+      return;
     }
+    box.replaceChildren();
+    for (const [port, info] of portInfo) {
+      const row = document.createElement("div");
+      row.className = "log-row";
+      const title = document.createElement("strong");
+      title.textContent = "Port " + port + (info.ioType != null ? " · I/O type 0x" + info.ioType.toString(16).toUpperCase() : "");
+      const detail = document.createElement("div");
+      detail.textContent = (info.inputModes != null ? "Input modes 0x" + info.inputModes.toString(16).padStart(4,"0").toUpperCase() : "Waiting for port information") +
+        (info.latest ? " · Latest mode " + info.latest.mode + ": " + info.latest.hex : "");
+      row.append(title, detail);
+      box.append(row);
+    }
+  }
+  function showPort(port, mode, data) {
+    const info = portInfo.get(port) || {};
+    info.latest = {mode, hex:hex(data), bytes:signedBytes(data)};
+    portInfo.set(port, info);
+    $("viewTitle").textContent = "Port " + port + " · mode " + mode;
+    $("viewIcon").textContent = "▦";
+    $("viewNote").textContent = "Raw LEGO Wireless Protocol value. The page does not guess what an unknown mode means.";
+    $("viewIcon").style.color = "#ffcf35";
+    renderPorts();
+    log("Port " + port + " · mode " + mode + " · HEX " + (hex(data) || "(empty)") + " · bytes [" + signedBytes(data) + "]");
   }
   function parsePacket(packet) {
     if (packet.length < 3) { log("Short packet: " + hex(packet)); return; }
@@ -170,8 +176,20 @@ console.log("Requested hub details and sensor updates.");
     } else if (type === 0x03 && packet.length >= 5) {
       log("Hub alert · type 0x" + packet[3].toString(16) + " · status " + (packet[4] === 0xFF ? "ALERT" : "OK"));
     } else if (type === 0x04 && packet.length >= 5) {
-      const event = packet[4];
-      log("Hub I/O · port " + packet[3] + " · " + (event === 0 ? "detached" : event === 1 ? "attached" : "virtual attached") + (packet.length >= 7 ? " · IO type 0x" + (packet[5] | (packet[6] << 8)).toString(16) : ""));
+      const port = packet[3], event = packet[4];
+      const ioType = packet.length >= 7 ? packet[5] | (packet[6] << 8) : null;
+      log("Hub I/O · port " + port + " · " + (event === 0 ? "detached" : event === 1 ? "attached" : "virtual attached") + (ioType != null ? " · IO type 0x" + ioType.toString(16).toUpperCase() : ""));
+      if (event === 0) {
+        portInfo.delete(port);
+        activeModes.delete(port);
+        renderPorts();
+      } else if (event === 1) {
+        portInfo.set(port, {ioType});
+        renderPorts();
+        requestPortInfo(port, 1).catch(error => log("Port " + port + " info request failed: " + error.message));
+      } else {
+        log("Virtual-port attachment detected; raw packet retained in the log.");
+      }
     } else if (type === 0x05 && packet.length >= 5) {
       log("Hub error/ack · command 0x" + packet[3].toString(16) + " · code 0x" + packet[4].toString(16));
     } else if (type === 0x45 && packet.length >= 5) {
@@ -182,12 +200,41 @@ console.log("Requested hub details and sensor updates.");
       const port = packet[3], pointers = packet[4] | (packet[5] << 8), data = packet.slice(6);
       log("Hub " + hub + " · Combined value (0x46) · port " + port + " · mode bits 0x" + pointers.toString(16) + " · " + hex(data));
       showPort(port, "combined", data, packet);
-    } else if (type === 0x43 && packet.length >= 6) {
-      log("Hub " + hub + " · Port information · port " + packet[3] + " · " + hex(packet.slice(4)));
+    } else if (type === 0x43 && packet.length >= 5) {
+      const port = packet[3], infoType = packet[4];
+      if (infoType === 0x01 && packet.length >= 11) {
+        const capabilities = packet[5], modeCount = packet[6];
+        const inputModes = packet[7] | (packet[8] << 8);
+        const outputModes = packet[9] | (packet[10] << 8);
+        const info = portInfo.get(port) || {};
+        Object.assign(info, {capabilities,modeCount,inputModes,outputModes});
+        portInfo.set(port, info);
+        log("Port " + port + " capabilities 0x" + capabilities.toString(16) + " · " + modeCount + " modes · inputs 0x" + inputModes.toString(16) + " · outputs 0x" + outputModes.toString(16));
+        renderPorts();
+        const modes = [];
+        for (let mode=0; mode<16; mode++) if (inputModes & (1 << mode)) modes.push(mode);
+        for (const mode of modes) {
+          requestPortModeInfo(port, mode, 0).catch(error => log("Mode-name request failed · port " + port + " mode " + mode + ": " + error.message));
+          requestPortModeInfo(port, mode, 0x80).catch(error => log("Value-format request failed · port " + port + " mode " + mode + ": " + error.message));
+        }
+        if (modes.length) {
+          const preferred = modes.includes(0) ? 0 : modes[0];
+          activeModes.set(port, preferred);
+          subscribe(port, preferred, 1, true).then(() => log("Subscribed to port " + port + " input mode " + preferred)).catch(error => log("Subscription failed · port " + port + " mode " + preferred + ": " + error.message));
+        } else log("Port " + port + " reports no input modes.");
+      } else {
+        log("Hub " + hub + " · Port information · port " + port + " · type " + infoType + " · " + hex(packet.slice(5)));
+      }
     } else if (type === 0x44 && packet.length >= 6) {
-      const nameBytes = packet.slice(5);
-      const name = decoder.decode(new Uint8Array(nameBytes)).replace(/[^\x20-\x7E]/g,"");
-      log("Hub " + hub + " · Mode info · port " + packet[3] + " · mode " + packet[4] + " · " + (name || hex(nameBytes)));
+      const port = packet[3], mode = packet[4], infoType = packet[5], payload = packet.slice(6);
+      const info = portInfo.get(port) || {};
+      info.modes = info.modes || {};
+      info.modes[mode] = info.modes[mode] || {};
+      if (infoType === 0x00) info.modes[mode].name = decoder.decode(new Uint8Array(payload)).replace(/[^\x20-\x7E]/g,"");
+      else if (infoType === 0x80) info.modes[mode].valueFormat = hex(payload);
+      portInfo.set(port, info);
+      log("Hub " + hub + " · Port " + port + " mode " + mode + " · info " + infoType + " · " + (info.modes[mode].name || hex(payload)));
+      renderPorts();
     } else {
       log("Hub " + hub + " · message 0x" + type.toString(16).padStart(2,"0") + " · " + hex(packet));
     }
@@ -310,19 +357,19 @@ console.log("Requested hub details and sensor updates.");
       } else if (method === "requestHubProperty") {
         const property = Number(args[0]);
         if (!characteristic) throw new Error("Connect Mario before requesting hub properties.");
-        if (!Number.isInteger(property) || property < 1 || property > 18) throw new Error("Hub property must be an integer from 1 to 18.");
+        if (!Number.isInteger(property) || property < 1 || property > 15) throw new Error("Standard LEGO hub properties are numbered 1 through 15. Use mario.setVolume() for Mario's separately verified volume extension.");
         const bytes = [0x05,0x00,0x01,property,0x05];
         await writePacket(bytes);
         log("SCRIPT TX · " + hex(bytes));
         result = "Hub property request sent; inspect the packet log for the response.";
       } else if (method === "getHubInfo") {
         if (!characteristic) throw new Error("Connect Mario before requesting hub information.");
-        for (const property of [3,4,5,6,7,8,9,10,11,0x12]) {
+        for (const property of [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]) {
           const bytes = [0x05,0x00,0x01,property,0x05];
           await writePacket(bytes);
           await new Promise(resolve => setTimeout(resolve, 70));
         }
-        result = "Requested firmware, hardware, RSSI, battery, manufacturer, radio firmware, protocol and system information.";
+        result = "Requested standard hub properties 0x01–0x0F. Speaker volume is queried separately.";
         log("SCRIPT · requested standard hub properties.");
       } else if (method === "unsubscribe") {
         const port = Number(args[0]), mode = Number(args[1] ?? 0);
@@ -340,10 +387,7 @@ console.log("Requested hub details and sensor updates.");
         log("SCRIPT TX · speaker volume " + volume + "% · " + hex(bytes));
         result = "Speaker volume set request sent: " + volume + "%.";
       } else if (method === "restart") {
-        if (!characteristic) throw new Error("Connect Mario before requesting restart.");
-        await writePacket([0x04,0x00,0x02,0x07]);
-        log("SCRIPT TX · experimental restart action · 04 00 02 07");
-        result = "Restart request sent. The hub may disconnect while rebooting.";
+        throw new Error("Restart is not exposed: the published LEGO Wireless Protocol does not define Hub Action 0x07.");
       } else if (method === "setBusyIndicator") {
         if (!characteristic) throw new Error("Connect Mario before using hub actions.");
         const enabled = Boolean(args[0]);
@@ -417,7 +461,6 @@ console.log("Requested hub details and sensor updates.");
           requestHardwareVersion: () => call("requestHubProperty", 4),
           requestRSSI: () => call("requestHubProperty", 5),
           setVolume: percent => call("setVolume", percent),
-          restart: () => call("restart"),
           requestButtonState: () => call("requestButtonState"),
           setBusyIndicator: enabled => call("setBusyIndicator", enabled),
           enableBatteryUpdates: () => call("setBatteryUpdates", true),
@@ -470,6 +513,28 @@ console.log("Requested hub details and sensor updates.");
       stopScript("Script ended with an error.");
     }
   });
+  async function requestPortInfo(port, infoType = 1) {
+    if (!characteristic) throw new Error("Connect Mario before requesting port information.");
+    if (!Number.isInteger(port) || port < 0 || port > 255 || !Number.isInteger(infoType) || infoType < 0 || infoType > 2) throw new Error("Invalid port or infoType.");
+    const bytes = [0x05,0x00,0x21,port,infoType];
+    await writePacket(bytes);
+    log("TX · port information request · " + hex(bytes));
+  }
+  async function requestPortModeInfo(port, mode, infoType = 0) {
+    if (!characteristic) throw new Error("Connect Mario before requesting port mode information.");
+    if (![port,mode,infoType].every(Number.isInteger) || port < 0 || port > 255 || mode < 0 || mode > 255 || infoType < 0 || infoType > 128) throw new Error("Invalid port, mode or infoType.");
+    const bytes = [0x06,0x00,0x22,port,mode,infoType];
+    await writePacket(bytes);
+    log("TX · port mode information request · " + hex(bytes));
+  }
+  async function requestHubInfo() {
+    if (!characteristic) throw new Error("Connect Mario before requesting hub information.");
+    for (const property of [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]) {
+      await writePacket([0x05,0x00,0x01,property,0x05]);
+      await new Promise(resolve => setTimeout(resolve, 55));
+    }
+    $("hubControlStatus").textContent = "Requested standard hub properties 0x01–0x0F. See the packet log.";
+  }
   async function readVolume() {
     try {
       await writePacket([0x05,0x00,0x01,0x12,0x05]);
@@ -490,21 +555,10 @@ console.log("Requested hub details and sensor updates.");
   $("volumeSlider").addEventListener("change", applyVolume);
   $("readVolume").addEventListener("click", readVolume);
   $("setVolume").addEventListener("click", applyVolume);
-  $("restartMario").addEventListener("click", async () => {
-    if (!characteristic) return;
-    if (!confirm("Send the experimental restart command to LEGO Mario? This may disconnect the hub.")) return;
-    try {
-      await writePacket([0x04,0x00,0x02,0x07]);
-      $("hubControlStatus").textContent = "Restart command sent. Waiting for Mario to disconnect/reboot…";
-      log("TX · experimental restart · 04 00 02 07");
-      setTimeout(() => { if (device?.gatt?.connected) device.gatt.disconnect(); }, 1200);
-    } catch (e) { $("hubControlStatus").textContent = "Restart failed: " + e.message; }
-  });
   $("busyOn").addEventListener("click", async () => { try { await writePacket([0x04,0x00,0x02,0x05]); $("hubControlStatus").textContent = "Busy indication activated."; log("TX · busy indicator on · 04 00 02 05"); } catch(e) { $("hubControlStatus").textContent = e.message; } });
   $("busyOff").addEventListener("click", async () => { try { await writePacket([0x04,0x00,0x02,0x06]); $("hubControlStatus").textContent = "Busy indication reset."; log("TX · busy indicator off · 04 00 02 06"); } catch(e) { $("hubControlStatus").textContent = e.message; } });
-  $("refreshInfo").addEventListener("click", async () => { try { for (const p of [3,4,5,6,7,8,9,10,11]) { await writePacket([0x05,0x00,0x01,p,0x05]); await new Promise(r=>setTimeout(r,70)); } $("hubControlStatus").textContent = "Hub information requests sent; see packet log."; } catch(e) { $("hubControlStatus").textContent = e.message; } });
+  $("refreshInfo").addEventListener("click", async () => { try { await requestHubInfo(); } catch(e) { $("hubControlStatus").textContent = e.message; } });
   $("buttonState").addEventListener("click", async () => { try { await writePacket([0x05,0x00,0x01,0x02,0x05]); $("hubControlStatus").textContent = "Button-state request sent; see packet log."; } catch(e) { $("hubControlStatus").textContent = e.message; } });
-  $("volumeSlider").addEventListener("input", e => { $("volumeValue").textContent = e.target.value + "%"; });
   let updateDemoTimer = null;
   function stopUpdateDemo() { if (updateDemoTimer) clearInterval(updateDemoTimer); updateDemoTimer = null; $("stopUpdateDemo").disabled = true; $("startUpdateDemo").disabled = false; }
   $("startUpdateDemo").addEventListener("click", () => { stopUpdateDemo(); let progress = 0; $("startUpdateDemo").disabled = true; $("stopUpdateDemo").disabled = false; $("updateState").textContent = "Preparing demo…"; $("updateProgress").style.width = "0%"; $("updatePercent").textContent = "0% · SIMULATION ONLY"; updateDemoTimer = setInterval(() => { progress = Math.min(100, progress + Math.ceil(Math.random()*5)); $("updateProgress").style.width = progress + "%"; $("updatePercent").textContent = progress + "% · SIMULATION ONLY"; $("updateState").textContent = progress < 25 ? "Checking package…" : progress < 60 ? "Transferring demo data…" : progress < 90 ? "Verifying demo…" : "Finalizing preview…"; if (progress >= 100) { stopUpdateDemo(); $("updateState").textContent = "Demo complete · no firmware changed"; log("Update screen demo completed. No firmware operation was performed."); } }, 180); });
@@ -550,14 +604,12 @@ console.log("Requested hub details and sensor updates.");
       $("deviceName").textContent = device.name || "LEGO hub";
       setStatus("Connected · listening for sensor data", true);
       log("Connected to " + (device.name || "LEGO hub") + ". Listening for notifications.");
-      // These are the input modes documented in the project research notes.
-      const subscriptions = [[0,0],[1,0],[2,0],[3,0],[4,0]];
-      for (const [port,mode] of subscriptions) {
-        try { activeModes.set(port,mode); await subscribe(port,mode); log("Requested notifications: port " + port + ", mode " + mode); }
-        catch (error) { activeModes.delete(port); log("Could not subscribe port " + port + " mode " + mode + ": " + error.message); }
-      }
-      log("Subscription requests sent. Move Mario over a tile or move the figure to generate readings.");
-      try { await writePacket([0x05,0x00,0x01,0x12,0x05]); log("Requested current speaker volume (hub property 0x12)."); } catch (e) { log("Volume read request failed: " + e.message); }
+      portInfo.clear();
+      activeModes.clear();
+      renderPorts();
+      log("Waiting for attached-I/O messages. Port types and supported input modes are discovered from the hub.");
+      try { await writePacket([0x05,0x00,0x01,0x12,0x05]); log("Requested speaker volume using Mario-specific extension 0x12 (confirmed by project testing)."); } catch (e) { log("Volume read request failed: " + e.message); }
+      try { await requestHubInfo(); } catch (e) { log("Hub info request failed: " + e.message); }
     } catch (error) {
       if (error.name === "NotFoundError") setStatus("No device selected.");
       else if (error.name === "NetworkError") setStatus("Could not connect. Close the LEGO app and try again.");
