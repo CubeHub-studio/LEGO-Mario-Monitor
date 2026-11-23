@@ -96,6 +96,38 @@
       <div id="debugPacketList" class="log" style="max-height:360px"><div class="muted">Packet capture will appear here.</div></div>
       <div class="warning">The trace may contain hardware identifiers such as MAC addresses. Review it before sharing. The debugger never sends extra commands by itself.</div>
     </article>
+    <article class="card" id="gameDataReader" style="grid-column:1/-1">
+      <h2>Challenge data reader · documented interface</h2>
+      <p class="muted">Reads raw LPF2 port-value notifications already exposed by the standard hub interface. This is a data observer, not a verified Mario-game decoder: coin, timer and score meanings are not established by the published protocol.</p>
+      <div class="control-row" style="flex-wrap:wrap">
+        <label class="muted" for="challengePort">Port ID</label>
+        <input id="challengePort" type="number" min="0" max="255" value="4" style="width:90px;padding:9px;border:1px solid #384258;border-radius:9px;background:#0e1119;color:#f3f6fc">
+        <button id="challengeReadInfo" disabled>Read port interface</button>
+        <button id="challengeReadValue" disabled>Request current value</button>
+      </div>
+      <div class="metric" id="challengeReadStatus">Waiting for connection</div>
+      <div class="readout" id="challengeReadout">No challenge-related port sample captured. Raw port values will appear here when received.</div>
+      <p class="muted">Latest sample: <span id="challengeSampleMeta">none</span></p>
+      <div class="warning">The reader displays the port number, mode and raw bytes exactly as received. It does not label any value as coins, time or score without a verified data format.</div>
+    </article>
+    <article class="card" id="port4OutputTest" style="grid-column:1/-1">
+      <h2>Port 4 output testing · partially documented</h2>
+      <p class="muted">The standard protocol documents output-capability bitmaps and output-command feedback. A safe Mario-specific test command and the exact function of Mario port 4 are not confirmed.</p>
+      <div class="actions"><button id="port4Inspect" disabled>Inspect port 4 capabilities</button></div>
+      <div class="metric" id="port4OutputStatus">Not inspected</div>
+      <div class="readout" id="port4OutputDetails">No port 4 capability response yet.</div>
+      <div class="warning">This panel is intentionally read-only. It will not send a motor/output command. A port being marked as output-capable does not establish that a particular test is safe or appropriate for Mario.</div>
+    </article>
+    <article class="card" id="experimentalGameControls" style="grid-column:1/-1">
+      <h2>Mario game-state controls · unconfirmed</h2>
+      <p class="muted">No documented standard-hub commands have been verified for these operations. Controls remain unavailable until a supported Mario-specific interface and command format are established.</p>
+      <div class="grid">
+        <div><strong>Coin manipulation</strong><div class="tag">Unconfirmed · unavailable</div><p class="muted">No verified coin-set/add command.</p></div>
+        <div><strong>Timer manipulation</strong><div class="tag">Unconfirmed · unavailable</div><p class="muted">No verified timer read/write command.</p></div>
+        <div><strong>Score manipulation</strong><div class="tag">Unconfirmed · unavailable</div><p class="muted">No verified score read/write command.</p></div>
+        <div><strong>Stomach display override</strong><div class="tag">Unconfirmed · unavailable</div><p class="muted">No verified LCD framebuffer or text/graphics write command.</p></div>
+      </div>
+    </article>
     <article class="card" style="grid-column:1/-1">
       <h2>Advanced port diagnostics</h2>
       <p class="muted">Inspect the documented LPF2 sensor metadata and configure input notifications. These controls do not issue motor-output commands.</p>
@@ -334,6 +366,10 @@ console.log("Requested hub details and sensor updates.");
     $("viewNote").textContent = "Raw LEGO Wireless Protocol value. The page does not guess what an unknown mode means.";
     $("viewIcon").style.color = "#ffcf35";
     renderPorts();
+    if ($("challengeReadout")) {
+      $("challengeReadout").textContent = "Port " + port + " · mode " + mode + "\nHEX: " + (hex(data) || "(empty)") + "\nSigned bytes: [" + signedBytes(data) + "]";
+      $("challengeSampleMeta").textContent = new Date().toLocaleTimeString() + " · port " + port + " · mode " + mode;
+    }
     log("Port " + port + " · mode " + mode + " · HEX " + (hex(data) || "(empty)") + " · bytes [" + signedBytes(data) + "]");
   }
   const PACKET_TYPE_NAMES = {0x01:"Hub Properties",0x02:"Hub Actions",0x03:"Hub Alerts",0x04:"Attached I/O",0x05:"Generic Error",0x08:"Hardware Network",0x21:"Port Info Request",0x22:"Port Mode Info Request",0x41:"Input Format Setup",0x42:"Combined Format Setup",0x43:"Port Info",0x44:"Mode Info",0x45:"Port Value",0x46:"Combined Value",0x47:"Input Format Ack",0x48:"Combined Format Ack",0x61:"Virtual Port Setup",0x81:"Port Output",0x82:"Output Feedback"};
@@ -490,6 +526,12 @@ console.log("Requested hub details and sensor updates.");
         const info = portInfo.get(port) || {};
         Object.assign(info, {capabilities,modeCount,inputModes,outputModes});
         portInfo.set(port, info);renderHealth();
+        if (port === 4) {
+          const inputIds=Array.from({length:16},(_,i)=>i).filter(i=>inputModes&(1<<i));
+          const outputIds=Array.from({length:16},(_,i)=>i).filter(i=>outputModes&(1<<i));
+          $("port4OutputStatus").textContent = (capabilities & 1) ? "Output capability advertised" : "No output capability advertised";
+          $("port4OutputDetails").textContent = "I/O type: " + (info.ioType==null?"unknown":"0x"+info.ioType.toString(16).toUpperCase()) + "\nCapabilities: 0x" + capabilities.toString(16).padStart(2,"0").toUpperCase() + "\nInput modes: " + (inputIds.join(", ")||"none") + "\nOutput modes: " + (outputIds.join(", ")||"none") + "\nMode count: " + modeCount;
+        }
         log("Port " + port + " capabilities 0x" + capabilities.toString(16) + " · " + modeCount + " modes · inputs 0x" + inputModes.toString(16) + " · outputs 0x" + outputModes.toString(16));
         renderPorts();
         const modes = [];
@@ -1189,6 +1231,8 @@ console.log("Requested hub details and sensor updates.");
       clearDebugCapture();
       activeModes.clear();healthProperties.clear();healthAlerts.clear();healthErrors.length=0;healthIoEvents.length=0;healthHubEvents.length=0;healthNotificationCount=0;healthModeAcks=0;healthCombinedValues=0;lastHealthReport=null;$("healthResults").innerHTML="<div class=\"muted\">Connected. Run diagnostics to collect a report.</div>";$("healthSummary").textContent="Ready for diagnostics";$("exportHealthReport").disabled=true;
       renderPorts();renderDebugPackets();
+      $("challengeReadInfo").disabled=false;$("challengeReadValue").disabled=false;$("port4Inspect").disabled=false;
+      $("challengeReadStatus").textContent="Connected · waiting for port samples";
       log("Waiting for attached-I/O messages. Port types and supported input modes are discovered from the hub.");
       try { await writePacket([0x05,0x00,0x01,0x12,0x05]); log("Requested speaker volume using Mario-specific extension 0x12 (confirmed by project testing)."); } catch (e) { log("Volume read request failed: " + e.message); }
       try { await requestHubInfo(); } catch (e) { log("Hub info request failed: " + e.message); }
@@ -1202,6 +1246,8 @@ console.log("Requested hub details and sensor updates.");
   }
   function disconnected() {
     characteristic = null;
+    $("challengeReadInfo").disabled=true;$("challengeReadValue").disabled=true;$("port4Inspect").disabled=true;
+    $("challengeReadStatus").textContent="Disconnected";
     $("deviceName").textContent = "";
     setStatus("Disconnected · tap Connect Mario to reconnect");
     log("Hub disconnected. Reconnect from this page; the LEGO app does not need to stay open.");
@@ -1210,6 +1256,23 @@ console.log("Requested hub details and sensor updates.");
     if (device?.gatt?.connected) device.gatt.disconnect();
     else disconnected();
   }
+  $("challengeReadInfo").addEventListener("click", async () => {
+    const port = Number($("challengePort").value);
+    try { await requestPortInfo(port, 1); $("challengeReadStatus").textContent = "Requested documented capabilities for port " + port + "."; }
+    catch (e) { $("challengeReadStatus").textContent = e.message; }
+  });
+  $("challengeReadValue").addEventListener("click", async () => {
+    const port = Number($("challengePort").value);
+    try { await readCurrentPortValue(port); $("challengeReadStatus").textContent = "Requested current raw value for port " + port + "."; }
+    catch (e) { $("challengeReadStatus").textContent = e.message; }
+  });
+  $("port4Inspect").addEventListener("click", async () => {
+    try {
+      await requestPortInfo(4, 1);
+      await readCurrentPortValue(4);
+      $("port4OutputStatus").textContent = "Capability and current-value requests sent · awaiting replies";
+    } catch (e) { $("port4OutputStatus").textContent = e.message; }
+  });
   $("sendPacket").addEventListener("click", sendCustomPacket);
   $("examplePacket").addEventListener("click", () => {
     $("sendHex").value = "0A 00 41 00 00 01 00 00 00 01";
