@@ -71,10 +71,10 @@ console.log("Requested hub details and sensor updates.");
       <div class="warning">Scripts can send Bluetooth commands to the connected hub. The volume API uses Mario's separately verified extension. <code>mario.displaytext(text)</code> remains unavailable: LEGO's published protocol does not document a custom-text display command for Mario.</div>
     </article>
     <article class="card"><h2>Hub controls</h2>
-      <p class="muted">Hub actions and status requests.</p>
-      <div class="actions"><button id="busyOn" disabled>Busy indicator on</button><button id="busyOff" disabled>Busy indicator off</button><button id="refreshInfo" disabled>Refresh hub info</button><button id="buttonState" disabled>Check hub button</button></div>
+      <p class="muted">Hub actions and status requests. The official BUSY action controls an RGB indication, not Mario’s LCD screen.</p>
+      <div class="actions"><button id="busyOn" disabled>Hub RGB BUSY on</button><button id="busyOff" disabled>Hub RGB BUSY reset</button><button id="refreshInfo" disabled>Refresh hub info</button><button id="buttonState" disabled>Check hub button</button></div>
       <p class="muted" id="hubControlStatus">Connect Mario to enable hub controls.</p>
-      <div class="muted">Only documented hub actions are exposed here. The published protocol does not define a general restart action.</div>
+      <div class="muted">The official BUSY actions (0x05/0x06) request an RGB BUSY indication and preserve prior RGB settings. They do not display text on Mario’s screen. Hardware support for a visible RGB indicator is not guaranteed by the specification. These actions have no success acknowledgement defined: “sent” means the browser wrote the packet, not that an indicator visibly changed.</div>
     </article>
     <article class="card"><h2>Volume · Mario speaker</h2>
       <div class="control-row"><input id="volumeSlider" class="range" type="range" min="0" max="100" step="1" value="50" disabled aria-label="Mario speaker volume"><output id="volumeValue" for="volumeSlider">50%</output></div>
@@ -555,8 +555,8 @@ console.log("Requested hub details and sensor updates.");
   $("volumeSlider").addEventListener("change", applyVolume);
   $("readVolume").addEventListener("click", readVolume);
   $("setVolume").addEventListener("click", applyVolume);
-  $("busyOn").addEventListener("click", async () => { try { await writePacket([0x04,0x00,0x02,0x05]); $("hubControlStatus").textContent = "Busy indication activated."; log("TX · busy indicator on · 04 00 02 05"); } catch(e) { $("hubControlStatus").textContent = e.message; } });
-  $("busyOff").addEventListener("click", async () => { try { await writePacket([0x04,0x00,0x02,0x06]); $("hubControlStatus").textContent = "Busy indication reset."; log("TX · busy indicator off · 04 00 02 06"); } catch(e) { $("hubControlStatus").textContent = e.message; } });
+  $("busyOn").addEventListener("click", async () => { try { await writePacket([0x04,0x00,0x02,0x05]); $("hubControlStatus").textContent = "BUSY RGB action packet sent. The protocol does not confirm a visible LED change."; log("TX · Hub Action 0x05 · Activate BUSY RGB indication · 04 00 02 05"); } catch(e) { $("hubControlStatus").textContent = e.message; } });
+  $("busyOff").addEventListener("click", async () => { try { await writePacket([0x04,0x00,0x02,0x06]); $("hubControlStatus").textContent = "BUSY RGB reset packet sent. The protocol does not confirm a visible LED change."; log("TX · Hub Action 0x06 · Reset BUSY RGB indication · 04 00 02 06"); } catch(e) { $("hubControlStatus").textContent = e.message; } });
   $("refreshInfo").addEventListener("click", async () => { try { await requestHubInfo(); } catch(e) { $("hubControlStatus").textContent = e.message; } });
   $("buttonState").addEventListener("click", async () => { try { await writePacket([0x05,0x00,0x01,0x02,0x05]); $("hubControlStatus").textContent = "Button-state request sent; see packet log."; } catch(e) { $("hubControlStatus").textContent = e.message; } });
   let updateDemoTimer = null, updateCountdown = null;
@@ -575,11 +575,11 @@ console.log("Requested hub details and sensor updates.");
     $("startUpdateDemo").disabled = true;
     $("stopUpdateDemo").disabled = false;
     $("updateProgress").style.width = "0%";
-    $("updateState").textContent = "BUSY light active · update preparation notice";
+    $("updateState").textContent = "BUSY RGB action sent · no LCD message";
     $("updatePercent").textContent = "10 seconds remaining";
     try {
       await writePacket([0x04,0x00,0x02,0x05]); // Official Hub Action: activate BUSY indication.
-      log("Update preparation signal: activated documented BUSY light indication (Hub Action 0x05).");
+      log("Update preparation: sent documented Hub Action 0x05 (RGB BUSY indication; not an LCD message).");
     } catch (error) {
       stopUpdateDemo("Could not notify Mario: " + error.message);
       return;
