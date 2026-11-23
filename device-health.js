@@ -21,6 +21,12 @@
     7: "Overcurrent", 8: "Internal hub error"
   };
   const MODE_NAMES = ["NAME", "RAW", "PCT", "SI", "SYMBOL", "MAPPING", "INTERNAL", "MOTOR BIAS", "CAPABILITIES", "VALUE FORMAT"];
+  const IO_TYPE_NAMES = {
+    1:"Motor",2:"System train motor",5:"Button",8:"LED light",
+    20:"Voltage sensor",21:"Current sensor",22:"Piezo tone",23:"RGB light",
+    34:"External tilt sensor",35:"Motion sensor",37:"Vision sensor",
+    38:"External motor with tacho",39:"Internal motor with tacho",40:"Internal tilt"
+  };
   const has = (value) => value !== undefined && value !== null && value !== "";
   const row = (name, status, detail, group) => ({ name, status, detail: String(detail || ""), group: group || "General" });
 
@@ -68,6 +74,21 @@
         (c & 1) ? "output" : null, (c & 2) ? "input" : null,
         (c & 4) ? "logical combinable" : null, (c & 8) ? "logical synchronizable" : null
       ].filter(Boolean);
+      if (has(p.ioType)) {
+        const typeName = IO_TYPE_NAMES[p.ioType] || "Unlisted I/O device";
+        add("Port " + p.id + " device type", "INFO",
+          typeName + " · type ID 0x" + Number(p.ioType).toString(16).padStart(4,"0").toUpperCase(),
+          "Ports");
+      }
+      if (p.hardwareRevision || p.softwareRevision) {
+        add("Port " + p.id + " device revisions", "INFO",
+          "Hardware: " + (p.hardwareRevision || "not supplied") + " · Software: " + (p.softwareRevision || "not supplied"),
+          "Ports");
+      }
+      if (p.virtualPorts) {
+        add("Port " + p.id + " virtual-port mapping", "INFO",
+          "Formed from ports " + p.virtualPorts.join(" and ") + ".", "Ports");
+      }
       add("Port " + p.id + " capabilities", has(p.capabilities) ? "PASS" : "WAITING",
         has(p.capabilities) ? (caps.join(", ") || "No capability bits set") + "; " + (p.modeCount || 0) + " total mode(s)." : "Capability response not received.",
         "Ports");
@@ -135,6 +156,7 @@
     propertyNames: Object.freeze(PROPERTY_NAMES),
     alertNames: Object.freeze(ALERT_NAMES),
     errorNames: Object.freeze(ERROR_NAMES),
-    modeNames: Object.freeze(MODE_NAMES)
+    modeNames: Object.freeze(MODE_NAMES),
+    ioTypeNames: Object.freeze(IO_TYPE_NAMES)
   });
 })(typeof window !== "undefined" ? window : globalThis);
