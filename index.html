@@ -46,6 +46,15 @@
     <article class="card"><h2>Pants / accessory sensor</h2><div class="metric" id="pantsState">Waiting…</div><div class="muted">Port 2 · IO type 0x4A · mode 0</div><div class="readout" id="pantsValue">No data received</div></article>
     <article class="card"><h2>Events / debug</h2><div class="metric" id="eventsState">Waiting…</div><div class="muted">Port 3 · IO type 0x46 · modes 0–3</div><div class="readout" id="eventsValue">No data received</div></article>
     <article class="card"><h2>Port 4 · unknown device</h2><div class="metric" id="port4State">Waiting…</div><div class="muted">IO type 0x55 · FS Code / Events</div><div class="readout" id="port4Value">No data received</div></article>
+    <article class="card">
+      <h2>Send data · Bluetooth</h2>
+      <p class="muted">Send one complete LEGO Wireless Protocol packet as hexadecimal bytes, including its length byte and hub ID.</p>
+      <label for="sendHex" class="muted">Packet (hex)</label>
+      <textarea id="sendHex" rows="3" spellcheck="false" autocomplete="off" placeholder="0A 00 41 00 00 01 00 00 00 01" style="display:block;width:100%;margin:7px 0 10px;padding:10px;border:1px solid #384258;border-radius:10px;background:#0e1119;color:#f3f6fc;font:13px/1.5 ui-monospace,monospace;resize:vertical"></textarea>
+      <div class="actions"><button class="primary" id="sendPacket" disabled>Send packet</button><button id="examplePacket" type="button">Load example</button></div>
+      <p class="muted" id="sendStatus" aria-live="polite">Connect Mario before sending.</p>
+      <div class="warning">Only send packets you understand. Output commands may activate motors or other connected devices. This sender accepts packets up to 20 bytes; it does not split larger packets.</div>
+    </article>
     <article class="card"><h2>Bluetooth packet log</h2><div class="log" id="log"><div class="muted">Packets will appear here after connecting.</div></div></article>
   </section>
   <div class="warning"><strong>Camera limitation:</strong> LEGO Mario does not expose a camera image stream. The “Sensor view” is an honest visualization of sensor packets, not a live video feed. Unknown values are shown as raw bytes rather than guessed.</div>
@@ -142,6 +151,37 @@
       offset += length;
     }
   }
+  function parseHexPacket(input) {
+    const cleaned = input.trim().replace(/0x/gi, "").replace(/[\\s,:-]+/g, "");
+    if (!cleaned || cleaned.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(cleaned)) {
+      throw new Error("Enter hexadecimal byte pairs, such as 0A 00 41.");
+    }
+    const bytes = cleaned.match(/.{2}/g).map(pair => parseInt(pair, 16));
+    if (bytes.length < 3) throw new Error("A packet needs at least 3 bytes.");
+    if (bytes.length > 20) throw new Error("This sender is limited to 20 bytes per packet.");
+    if (bytes[0] !== bytes.length) {
+      throw new Error("Length byte mismatch: first byte must be " + bytes.length.toString(16).padStart(2, "0").toUpperCase() + " for this packet.");
+    }
+    return bytes;
+  }
+  async function sendCustomPacket() {
+    const button = $("sendPacket");
+    const status = $("sendStatus");
+    try {
+      if (!characteristic) throw new Error("Connect Mario first.");
+      const bytes = parseHexPacket($("sendHex").value);
+      button.disabled = true;
+      status.textContent = "Sending " + bytes.length + " bytes…";
+      await writePacket(bytes);
+      status.textContent = "Write completed · " + hex(bytes);
+      log("TX · " + hex(bytes));
+    } catch (error) {
+      status.textContent = "Not sent: " + error.message;
+      log("TX error · " + error.message);
+    } finally {
+      button.disabled = !characteristic;
+    }
+  }
   async function writePacket(bytes) {
     if (!characteristic) throw new Error("Not connected to the hub characteristic.");
     const data = new Uint8Array(bytes);
@@ -200,6 +240,11 @@
     if (device?.gatt?.connected) device.gatt.disconnect();
     else disconnected();
   }
+  $("sendPacket").addEventListener("click", sendCustomPacket);
+  $("examplePacket").addEventListener("click", () => {
+    $("sendHex").value = "0A 00 41 00 00 01 00 00 00 01";
+    $("sendStatus").textContent = "Example loaded: input-mode subscription request for port 0.";
+  });
   $("connect").addEventListener("click", connect);
   $("disconnect").addEventListener("click", disconnect);
   if (!window.isSecureContext) {
