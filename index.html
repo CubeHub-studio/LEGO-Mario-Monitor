@@ -238,7 +238,7 @@ console.log("Requested hub details and sensor updates.");
       await requestAllPorts(); $("healthProgress").style.width="35%";
       $("healthRunStatus").textContent="Waiting for port discovery, then inspecting reported ports...";
       await new Promise(resolve=>setTimeout(resolve,1500));
-      const ports = [...portInfo.entries()].filter(([id])=>id>=0 && id<=15).slice(0,8);
+      const ports = [...portInfo.entries()].filter(([id])=>id>=0 && id<=100);
       for(let i=0;i<ports.length;i++){
         const [port,info]=ports[i];
         await requestPortInfo(port,0);
