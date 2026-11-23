@@ -116,10 +116,11 @@
       modes + " single/combined input-format acknowledgement(s) received.", "Sensor configuration");
     add("Combined sensor value packets", s.combinedValues ? "PASS" : "NO DATA",
       (s.combinedValues || 0) + " combined-mode value packet(s) observed.", "Sensor data");
-    const protocolFaults = (s.errors || []).filter(e => e.code >= 3);
+    const protocolFaults = (s.errors || []).filter(e => [3,4,7,8].includes(e.code));
+    const unsupportedRequests = (s.errors || []).filter(e => e.code === 5 || e.code === 6);
     const acknowledgements = (s.errors || []).filter(e => e.code === 1 || e.code === 2);
-    add("Hub generic errors", protocolFaults.length ? "WARNING" : "PASS",
-      protocolFaults.length ? protocolFaults.map(e => (ERROR_NAMES[e.code] || ("Error 0x" + e.code.toString(16))) + " on command 0x" + e.command.toString(16)).join("; ") : "No protocol fault codes received.",
+    add("Hub generic errors", protocolFaults.length ? "WARNING" : unsupportedRequests.length ? "INFO" : "PASS",
+      protocolFaults.length ? protocolFaults.map(e => (ERROR_NAMES[e.code] || ("Error 0x" + e.code.toString(16))) + " on command 0x" + e.command.toString(16)).join("; ") : unsupportedRequests.length ? unsupportedRequests.length + " unsupported/invalid request response(s) captured; these do not by themselves indicate a hardware fault." : "No protocol fault codes received.",
       "Protocol");
     add("Protocol acknowledgements", acknowledgements.length ? "INFO" : "NO ACK",
       acknowledgements.length ? acknowledgements.length + " ACK/MACK response(s) received; these are informational, not faults." : "No ACK/MACK packets observed.",
