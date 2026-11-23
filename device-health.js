@@ -95,9 +95,20 @@
       modes + " single/combined input-format acknowledgement(s) received.", "Sensor configuration");
     add("Combined sensor value packets", s.combinedValues ? "PASS" : "NO DATA",
       (s.combinedValues || 0) + " combined-mode value packet(s) observed.", "Sensor data");
-    add("Hub generic errors", s.errors && s.errors.length ? "WARNING" : "PASS",
-      s.errors && s.errors.length ? s.errors.map(e => (ERROR_NAMES[e.code] || ("Error 0x" + e.code.toString(16))) + " on command 0x" + e.command.toString(16)).join("; ") : "No generic error packets received during this run.",
+    const protocolFaults = (s.errors || []).filter(e => e.code >= 3);
+    const acknowledgements = (s.errors || []).filter(e => e.code === 1 || e.code === 2);
+    add("Hub generic errors", protocolFaults.length ? "WARNING" : "PASS",
+      protocolFaults.length ? protocolFaults.map(e => (ERROR_NAMES[e.code] || ("Error 0x" + e.code.toString(16))) + " on command 0x" + e.command.toString(16)).join("; ") : "No protocol fault codes received.",
       "Protocol");
+    add("Protocol acknowledgements", acknowledgements.length ? "INFO" : "NO ACK",
+      acknowledgements.length ? acknowledgements.length + " ACK/MACK response(s) received; these are informational, not faults." : "No ACK/MACK packets observed.",
+      "Protocol");
+    add("Hub-originated action events", (s.hubEvents || []).length ? "INFO" : "NO EVENT",
+      (s.hubEvents || []).map(e => e.label).join(", ") || "No switch-off/disconnect/boot-mode event received.",
+      "Events");
+    add("Attached-I/O event history", (s.ioEvents || []).length ? "INFO" : "NO EVENT",
+      (s.ioEvents || []).length ? s.ioEvents.length + " attach/detach/virtual-port event(s) observed." : "No attached-I/O event observed in this session.",
+      "Events");
     add("Speaker volume extension", has(props[18]) ? "PASS" : "NOT REPORTED",
       has(props[18]) ? "Mario-specific volume property replied: " + props[18] : "The extension is not part of standard LWP; no response was recorded.",
       "Mario-specific");
@@ -113,7 +124,7 @@
         pass: counts.PASS || 0,
         warning: counts.WARNING || 0,
         waiting: counts.WAITING || 0,
-        unavailable: (counts.UNAVAILABLE || 0) + (counts["NO RESPONSE"] || 0) + (counts["NOT AVAILABLE"] || 0) + (counts["NO DATA"] || 0) + (counts["NO VALUE"] || 0) + (counts["NO PORTS REPORTED"] || 0) + (counts["NOT REPORTED"] || 0)
+        unavailable: (counts.UNAVAILABLE || 0) + (counts["NO RESPONSE"] || 0) + (counts["NOT AVAILABLE"] || 0) + (counts["NO DATA"] || 0) + (counts["NO VALUE"] || 0) + (counts["NO PORTS REPORTED"] || 0) + (counts["NOT REPORTED"] || 0) + (counts["NO ACK"] || 0) + (counts["NO EVENT"] || 0)
       },
       rows
     };
