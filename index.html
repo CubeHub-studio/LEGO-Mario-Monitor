@@ -486,7 +486,8 @@ console.log("Requested hub details and sensor updates.");
       log("TX · set speaker volume " + value + "% · 06 00 01 12 01 " + value.toString(16).padStart(2,"0").toUpperCase());
     } catch (e) { $("volumeStatus").textContent = "Volume was not sent: " + e.message; }
   }
-  $("volumeSlider").addEventListener("input", e => { $("volumeValue").textContent = e.target.value + "%"; });
+  $("volumeSlider").addEventListener("input", e => { $("volumeValue").textContent = e.target.value + "%"; $("volumeStatus").textContent = "Selected " + e.target.value + "%. Release the slider to send this setting to Mario."; });
+  $("volumeSlider").addEventListener("change", applyVolume);
   $("readVolume").addEventListener("click", readVolume);
   $("setVolume").addEventListener("click", applyVolume);
   $("restartMario").addEventListener("click", async () => {
