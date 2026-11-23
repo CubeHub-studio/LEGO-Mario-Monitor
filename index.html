@@ -175,8 +175,8 @@
       // These are the input modes documented in the project research notes.
       const subscriptions = [[0,0],[1,0],[2,0],[3,0],[4,0]];
       for (const [port,mode] of subscriptions) {
-        try { await subscribe(port,mode); activeModes.set(port,mode); log("Requested notifications: port " + port + ", mode " + mode); }
-        catch (error) { log("Could not subscribe port " + port + " mode " + mode + ": " + error.message); }
+        try { activeModes.set(port,mode); await subscribe(port,mode); log("Requested notifications: port " + port + ", mode " + mode); }
+        catch (error) { activeModes.delete(port); log("Could not subscribe port " + port + " mode " + mode + ": " + error.message); }
       }
       log("Subscription requests sent. Move Mario over a tile or move the figure to generate readings.");
     } catch (error) {
