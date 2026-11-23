@@ -81,12 +81,12 @@ console.log("Requested hub details and sensor updates.");
       <p class="muted" id="volumeStatus">Connect Mario to read and change its speaker volume. Values use the hub's 0–100 percentage range.</p>
       <div class="actions"><button id="readVolume" disabled>Read current volume</button><button id="setVolume" disabled>Apply volume</button></div>
     </article>
-    <article class="card"><h2>Firmware update screen · simulation</h2>
-      <p class="muted">Preview an update-style screen without sending firmware commands.</p>
-      <div class="metric" id="updateState">Demo idle</div><div class="progress"><span id="updateProgress"></span></div>
-      <div class="muted" id="updatePercent">0%</div>
-      <div class="actions" style="margin-top:12px"><button class="primary" id="startUpdateDemo">Play update demo</button><button id="stopUpdateDemo" disabled>Stop demo</button></div>
-      <div class="warning">Simulation only. No firmware is downloaded, transferred, installed, or changed. Actual firmware updating uses LEGO's official app.</div>
+    <article class="card"><h2>Update preparation · 10-second notice</h2>
+      <p class="muted">Shows a preparation notice using Mario's documented BUSY indicator, waits 10 seconds, then sends LEGO's documented Switch Off Hub action.</p>
+      <div class="metric" id="updateState">Ready · no update started</div><div class="progress"><span id="updateProgress"></span></div>
+      <div class="muted" id="updatePercent">Waiting for connection</div>
+      <div class="actions" style="margin-top:12px"><button class="primary" id="startUpdateDemo" disabled>Tell Mario an update is coming</button><button id="stopUpdateDemo" disabled>Cancel</button></div>
+      <div class="warning">Important: the published protocol does not define a remote restart command. After 10 seconds this sends Switch Off (0x01), so you must press Mario's power button to turn it back on. This does not install firmware; use the official LEGO app for actual updates.</div>
     </article>
     <article class="card"><h2>Bluetooth packet log</h2><div class="log" id="log"><div class="muted">Packets will appear here after connecting.</div></div></article>
   </section>
@@ -110,7 +110,7 @@ console.log("Requested hub details and sensor updates.");
     $("connect").disabled = connected;
     $("disconnect").disabled = !connected;
     $("sendPacket").disabled = !connected;
-    for (const id of ["busyOn","busyOff","refreshInfo","buttonState","readVolume","setVolume","volumeSlider"]) $(id).disabled = !connected;
+    for (const id of ["busyOn","busyOff","refreshInfo","buttonState","readVolume","setVolume","volumeSlider","startUpdateDemo"]) $(id).disabled = !connected;
   }
   function hex(bytes) { return [...bytes].map(v=>v.toString(16).padStart(2,"0").toUpperCase()).join(" "); }
   function signedBytes(bytes) { return [...bytes].map(v=>v>127?v-256:v).join(", "); }
@@ -559,10 +559,65 @@ console.log("Requested hub details and sensor updates.");
   $("busyOff").addEventListener("click", async () => { try { await writePacket([0x04,0x00,0x02,0x06]); $("hubControlStatus").textContent = "Busy indication reset."; log("TX · busy indicator off · 04 00 02 06"); } catch(e) { $("hubControlStatus").textContent = e.message; } });
   $("refreshInfo").addEventListener("click", async () => { try { await requestHubInfo(); } catch(e) { $("hubControlStatus").textContent = e.message; } });
   $("buttonState").addEventListener("click", async () => { try { await writePacket([0x05,0x00,0x01,0x02,0x05]); $("hubControlStatus").textContent = "Button-state request sent; see packet log."; } catch(e) { $("hubControlStatus").textContent = e.message; } });
-  let updateDemoTimer = null;
-  function stopUpdateDemo() { if (updateDemoTimer) clearInterval(updateDemoTimer); updateDemoTimer = null; $("stopUpdateDemo").disabled = true; $("startUpdateDemo").disabled = false; }
-  $("startUpdateDemo").addEventListener("click", () => { stopUpdateDemo(); let progress = 0; $("startUpdateDemo").disabled = true; $("stopUpdateDemo").disabled = false; $("updateState").textContent = "Preparing demo…"; $("updateProgress").style.width = "0%"; $("updatePercent").textContent = "0% · SIMULATION ONLY"; updateDemoTimer = setInterval(() => { progress = Math.min(100, progress + Math.ceil(Math.random()*5)); $("updateProgress").style.width = progress + "%"; $("updatePercent").textContent = progress + "% · SIMULATION ONLY"; $("updateState").textContent = progress < 25 ? "Checking package…" : progress < 60 ? "Transferring demo data…" : progress < 90 ? "Verifying demo…" : "Finalizing preview…"; if (progress >= 100) { stopUpdateDemo(); $("updateState").textContent = "Demo complete · no firmware changed"; log("Update screen demo completed. No firmware operation was performed."); } }, 180); });
-  $("stopUpdateDemo").addEventListener("click", () => { stopUpdateDemo(); $("updateState").textContent = "Demo stopped · no firmware changed"; });
+  let updateDemoTimer = null, updateCountdown = null;
+  function stopUpdateDemo(message = "Preparation cancelled.") {
+    if (updateDemoTimer) clearInterval(updateDemoTimer);
+    if (updateCountdown) clearTimeout(updateCountdown);
+    updateDemoTimer = null; updateCountdown = null;
+    $("stopUpdateDemo").disabled = true;
+    $("startUpdateDemo").disabled = !characteristic;
+    $("updateState").textContent = message;
+    $("updatePercent").textContent = "No firmware was changed";
+  }
+  $("startUpdateDemo").addEventListener("click", async () => {
+    if (!characteristic) { $("updateState").textContent = "Connect Mario first."; return; }
+    if (!confirm("Tell Mario an update is coming, wait 10 seconds, then switch Mario off? You will need to press its power button to turn it back on. No firmware will be installed.")) return;
+    $("startUpdateDemo").disabled = true;
+    $("stopUpdateDemo").disabled = false;
+    $("updateProgress").style.width = "0%";
+    $("updateState").textContent = "Mario is being prepared for an update…";
+    $("updatePercent").textContent = "10 seconds remaining";
+    try {
+      await writePacket([0x04,0x00,0x02,0x05]); // Official Hub Action: activate BUSY indication.
+      log("Update preparation notice: activated documented BUSY indication (Hub Action 0x05).");
+    } catch (error) {
+      stopUpdateDemo("Could not notify Mario: " + error.message);
+      return;
+    }
+    let remaining = 10;
+    updateDemoTimer = setInterval(() => {
+      remaining--;
+      $("updateProgress").style.width = ((10 - remaining) * 10) + "%";
+      $("updatePercent").textContent = remaining + (remaining === 1 ? " second remaining" : " seconds remaining");
+      $("updateState").textContent = "Update preparation · " + remaining + "s";
+      if (remaining <= 0) {
+        clearInterval(updateDemoTimer); updateDemoTimer = null;
+        updateCountdown = setTimeout(async () => {
+          updateCountdown = null;
+          if (!characteristic) { stopUpdateDemo("Connection lost · Mario was not switched off."); return; }
+          try {
+            await writePacket([0x04,0x00,0x02,0x06]); // Official Hub Action: reset BUSY indication.
+            await writePacket([0x04,0x00,0x02,0x01]); // Official Hub Action: switch off hub.
+            log("Sent documented Switch Off Hub action (0x01) after the 10-second notice. This is not a restart or firmware update.");
+            $("updateProgress").style.width = "100%";
+            $("updateState").textContent = "Mario switched off · press its power button to turn it on";
+            $("updatePercent").textContent = "No firmware installed";
+            $("stopUpdateDemo").disabled = true;
+            $("startUpdateDemo").disabled = true;
+          } catch (error) {
+            stopUpdateDemo("Could not send switch-off action: " + error.message);
+          }
+        }, 0);
+      }
+    }, 1000);
+  });
+  $("stopUpdateDemo").addEventListener("click", async () => {
+    stopUpdateDemo("Preparation cancelled.");
+    if (characteristic) {
+      try { await writePacket([0x04,0x00,0x02,0x06]); log("Cancelled update notice and reset BUSY indication."); }
+      catch (error) { log("Could not reset BUSY indication after cancellation: " + error.message); }
+    }
+  });
   $("runScript").addEventListener("click", runScript);
   $("stopScript").addEventListener("click", () => stopScript());
   $("exampleScript").addEventListener("click", () => {
