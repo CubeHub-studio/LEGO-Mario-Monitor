@@ -81,6 +81,21 @@
       <div class="warning">Port scans ask for metadata; they do not assume every port exists. Changing the advertising name changes the Bluetooth name broadcast by the hub. The hub may reject operations it does not implement.</div>
     </article>
     <article class="card" id="deviceHealthCard" style="grid-column:1/-1"><h2>Device Health</h2><p class="muted">Run a read-only check of standard hub properties, alerts, attached ports and sensor metadata. Missing responses are unavailable, not automatically faults.</p><div class="actions"><button class="primary" id="runHealthCheck" disabled>Run all diagnostics</button><button id="exportHealthReport" disabled>Export JSON report</button><span class="muted" id="healthRunStatus">Connect Mario to begin.</span></div><div class="progress"><span id="healthProgress"></span></div><div id="healthSummary" class="metric">No report yet</div><div id="healthResults" class="log"><div class="muted">No diagnostic run yet.</div></div><div class="warning">This reads device information and requests sensor input metadata. It does not test motors, change sensor modes, switch Mario off or install firmware.</div></article>
+    <article class="card" id="packetDebugger" style="grid-column:1/-1">
+      <h2>Protocol debugger · packet capture</h2>
+      <p class="muted">Captures decoded LEGO Hub Characteristic packets received and sent by this page. Capture is kept locally in memory and capped at 500 entries. It is not a Bluetooth sniffer and cannot see traffic exchanged by other apps.</p>
+      <div class="actions">
+        <button id="debugCaptureToggle">Pause capture</button>
+        <button id="debugClear">Clear capture</button>
+        <button id="debugExport" disabled>Export packet trace JSON</button>
+      </div>
+      <div class="metric" id="debugPacketSummary">0 RX · 0 TX · 0 malformed</div>
+      <div class="muted" id="debugPacketStats">No protocol packets captured yet.</div>
+      <label class="muted" for="debugFilter">Filter packet trace (type, port, or text)</label>
+      <input id="debugFilter" type="search" placeholder="e.g. 0x45, port 6, ERROR" style="display:block;width:100%;margin:6px 0 10px;padding:10px;border:1px solid #384258;border-radius:10px;background:#0e1119;color:#f3f6fc">
+      <div id="debugPacketList" class="log" style="max-height:360px"><div class="muted">Packet capture will appear here.</div></div>
+      <div class="warning">The trace may contain hardware identifiers such as MAC addresses. Review it before sharing. The debugger never sends extra commands by itself.</div>
+    </article>
     <article class="card" style="grid-column:1/-1">
       <h2>Advanced port diagnostics</h2>
       <p class="muted">Inspect the documented LPF2 sensor metadata and configure input notifications. These controls do not issue motor-output commands.</p>
@@ -204,6 +219,8 @@ console.log("Requested hub details and sensor updates.");
   const healthProperties = new Map();
   const healthAlerts = new Map();
   const healthErrors = [], healthIoEvents = [], healthHubEvents = [];
+  const debugPackets = [], debugStats = {rx:0,tx:0,notifications:0,malformed:0,byType:{},lastRx:0,maxGapMs:0,gaps:0};
+  let debugCaptureEnabled = true, debugStartedAt = Date.now();
   let healthRunning = false, healthNotificationCount = 0, healthModeAcks = 0, healthCombinedValues = 0, lastHealthReport = null;
   function renderHealth() {
     const snapshot = {
@@ -319,10 +336,71 @@ console.log("Requested hub details and sensor updates.");
     renderPorts();
     log("Port " + port + " · mode " + mode + " · HEX " + (hex(data) || "(empty)") + " · bytes [" + signedBytes(data) + "]");
   }
+  const PACKET_TYPE_NAMES = {0x01:"Hub Properties",0x02:"Hub Actions",0x03:"Hub Alerts",0x04:"Attached I/O",0x05:"Generic Error",0x08:"Hardware Network",0x21:"Port Info Request",0x22:"Port Mode Info Request",0x41:"Input Format Setup",0x42:"Combined Format Setup",0x43:"Port Info",0x44:"Mode Info",0x45:"Port Value",0x46:"Combined Value",0x47:"Input Format Ack",0x48:"Combined Format Ack",0x61:"Virtual Port Setup",0x81:"Port Output",0x82:"Output Feedback"};
+  function recordDebugPacket(direction, bytes, note="") {
+    if (!debugCaptureEnabled) return;
+    const data = Array.from(bytes || []);
+    const type = data.length >= 3 ? data[2] : null;
+    const entry = {time:new Date().toISOString(),elapsedMs:Math.round(performance.now()),direction,type,typeName:type==null?"Malformed":(PACKET_TYPE_NAMES[type]||"Unknown"),hex:hex(data),length:data.length,note};
+    debugPackets.push(entry);
+    if (debugPackets.length > 500) debugPackets.shift();
+    if (direction === "RX") {
+      debugStats.rx++;
+      const key = type == null ? "malformed" : "0x"+type.toString(16).padStart(2,"0").toUpperCase();
+      debugStats.byType[key] = (debugStats.byType[key] || 0) + 1;
+    } else debugStats.tx++;
+    renderDebugPackets();
+  }
+  function renderDebugPackets() {
+    const summary=$("debugPacketSummary"), stats=$("debugPacketStats"), list=$("debugPacketList");
+    if(!summary || !stats || !list) return;
+    summary.textContent=debugStats.rx+" RX · "+debugStats.tx+" TX · "+debugStats.notifications+" notifications · "+debugStats.malformed+" malformed";
+    const types=Object.entries(debugStats.byType).sort((a,b)=>b[1]-a[1]).map(([k,v])=>k+" "+v).join(" · ");
+    const duration=Math.max(0,Math.round((Date.now()-debugStartedAt)/1000));
+    stats.textContent="Capture duration "+duration+"s · max notification gap "+debugStats.maxGapMs.toFixed(1)+"ms · "+debugStats.gaps+" gap sample(s) · types: "+(types||"none");
+    const filter=($("debugFilter")?.value||"").trim().toLowerCase();
+    const visible=debugPackets.filter(p=>!filter || (p.hex+" "+p.typeName+" "+p.note+" "+p.direction).toLowerCase().includes(filter)).slice(-35).reverse();
+    list.replaceChildren();
+    if(!visible.length){const empty=document.createElement("div");empty.className="muted";empty.textContent="No packets match this filter.";list.append(empty);}
+    for(const p of visible){const row=document.createElement("div");row.className="log-row";row.textContent=p.time+" · "+p.direction+" · "+p.typeName+" · "+p.hex+(p.note?" · "+p.note:"");list.append(row);}
+    $("debugExport").disabled=debugPackets.length===0;
+  }
+  function clearDebugCapture() {
+    debugPackets.length=0;
+    for(const key of Object.keys(debugStats.byType)) delete debugStats.byType[key];
+    debugStats.rx=0;debugStats.tx=0;debugStats.notifications=0;debugStats.malformed=0;debugStats.lastRx=0;debugStats.maxGapMs=0;debugStats.gaps=0;debugStartedAt=Date.now();
+    renderDebugPackets();
+  }
+  function decodeFloatRange(payload) {
+    if(payload.length<8) return null;
+    const view=new DataView(new Uint8Array(payload).buffer);
+    const min=view.getFloat32(0,true),max=view.getFloat32(4,true);
+    return {min:Number.isFinite(min)?min:null,max:Number.isFinite(max)?max:null};
+  }
+  function decodeMapping(payload) {
+    if(payload.length<2) return {raw:hex(payload)};
+    const labels=bits=>["NULL","FUNCTIONAL_MAPPING_2","ABS","REL","DIS"].filter((name,i)=>bits & [0x80,0x40,0x10,0x08,0x04][i]);
+    return {input:{raw:payload[0],flags:labels(payload[0])},output:{raw:payload[1],flags:labels(payload[1])}};
+  }
+  function decodeValueFormat(payload) {
+    if(payload.length<4) return {raw:hex(payload),valid:false};
+    const types=["UInt8","UInt16","UInt32","Float"];
+    return {datasets:payload[0],typeCode:payload[1],type:types[payload[1]&3]||"Unknown",figures:payload[2],decimals:payload[3],valid:true};
+  }
+  function decodeModeMetadata(infoType,payload) {
+    if(infoType>=1 && infoType<=3) return decodeFloatRange(payload);
+    if(infoType===4) return decoder.decode(new Uint8Array(payload)).replace(/[^\x20-\x7E]/g,"");
+    if(infoType===5) return decodeMapping(payload);
+    if(infoType===7) return payload.length?payload[0]:null;
+    if(infoType===8) return {raw:hex(payload),bits:payload.map(v=>v.toString(2).padStart(8,"0")).join(" ")};
+    if(infoType===0x80) return decodeValueFormat(payload);
+    return hex(payload);
+  }
   function parsePacket(packet) {
     healthNotificationCount++;
-    if (packet.length < 3) { log("Short packet: " + hex(packet)); return; }
+    if (packet.length < 3) { debugStats.malformed++; recordDebugPacket("RX",packet,"short packet"); renderDebugPackets(); log("Short packet: " + hex(packet)); return; }
     const hub = packet[1], type = packet[2];
+    recordDebugPacket("RX",packet, "hub "+hub+" · "+(PACKET_TYPE_NAMES[type]||"message 0x"+type.toString(16)));
     if (type === 0x01 && packet.length >= 5) {
       const property = packet[3], operation = packet[4], data = packet.slice(5);
       const names = {1:"Hub name",2:"Button",3:"Firmware version",4:"Hardware version",5:"RSSI",6:"Battery level",7:"Battery type",8:"Manufacturer",9:"Radio firmware",10:"LWP version",11:"System type",12:"Hardware network ID",13:"Primary MAC",14:"Secondary MAC",15:"Hardware network family",18:"Speaker volume"};
@@ -463,11 +541,17 @@ console.log("Requested hub details and sensor updates.");
       info.modes[mode] = info.modes[mode] || {};
       const modeInfoNames = {0:"NAME",1:"RAW",2:"PCT",3:"SI",4:"SYMBOL",5:"MAPPING",6:"INTERNAL",7:"MOTOR BIAS",8:"CAPABILITIES",128:"VALUE FORMAT"};
       if (infoType === 0x00) info.modes[mode].name = decoder.decode(new Uint8Array(payload)).replace(/[^\x20-\x7E]/g,"");
-      else if (infoType === 0x80) info.modes[mode].valueFormat = hex(payload);
+      else if (infoType === 0x80) { info.modes[mode].valueFormat = hex(payload); info.modes[mode].valueFormatDecoded = decodeValueFormat(payload); }
+      else if (infoType === 1 || infoType === 2 || infoType === 3) { const range=decodeFloatRange(payload); info.modes[mode][modeInfoNames[infoType]] = range || {raw:hex(payload)}; }
+      else if (infoType === 4) info.modes[mode].symbol = decodeModeMetadata(infoType,payload);
+      else if (infoType === 5) info.modes[mode].mapping = decodeModeMetadata(infoType,payload);
+      else if (infoType === 7) info.modes[mode].motorBias = decodeModeMetadata(infoType,payload);
+      else if (infoType === 8) info.modes[mode].capabilityBits = decodeModeMetadata(infoType,payload);
       else info.modes[mode][modeInfoNames[infoType] || ("info_"+infoType)] = hex(payload);
       portInfo.set(port, info);
       renderHealth();
-      log("Hub " + hub + " · Port " + port + " mode " + mode + " · " + (modeInfoNames[infoType] || ("info " + infoType)) + " · " + (info.modes[mode].name || hex(payload)));
+      const decoded=info.modes[mode][({1:"RAW",2:"PCT",3:"SI",4:"symbol",5:"mapping",7:"motorBias",8:"capabilityBits",128:"valueFormatDecoded"})[infoType]];
+      log("Hub " + hub + " · Port " + port + " mode " + mode + " · " + (modeInfoNames[infoType] || ("info " + infoType)) + " · " + (info.modes[mode].name || (decoded && typeof decoded==="object"?JSON.stringify(decoded):decoded) || hex(payload)));
       renderPorts();
     } else {
       log("Hub " + hub + " · message 0x" + type.toString(16).padStart(2,"0") + " · " + hex(packet));
@@ -475,6 +559,8 @@ console.log("Requested hub details and sensor updates.");
   }
   function handleNotification(event) {
     const bytes = new Uint8Array(event.target.value.buffer, event.target.value.byteOffset, event.target.value.byteLength);
+    debugStats.notifications++;
+    const now=performance.now(); if(debugStats.lastRx){const gap=now-debugStats.lastRx;debugStats.maxGapMs=Math.max(debugStats.maxGapMs,gap);debugStats.gaps++;} debugStats.lastRx=now;
     let offset = 0;
     while (offset < bytes.length) {
       let length = bytes[offset], header = 1;
@@ -484,6 +570,7 @@ console.log("Requested hub details and sensor updates.");
         header = 2;
       }
       if (length < 3 || offset + length > bytes.length) {
+        debugStats.malformed++; recordDebugPacket("RX",bytes.slice(offset),"invalid frame length "+length); renderDebugPackets();
         log("Unparsed notification bytes: " + hex(bytes.slice(offset)));
         break;
       }
@@ -943,6 +1030,15 @@ console.log("Requested hub details and sensor updates.");
     } catch (e) { $("volumeStatus").textContent = "Volume was not sent: " + e.message; }
   }
   $("runHealthCheck").addEventListener("click",async()=>{try{await runDeviceHealth();}catch(e){$("healthRunStatus").textContent=e.message;}});
+  $("debugCaptureToggle").addEventListener("click",()=>{debugCaptureEnabled=!debugCaptureEnabled;$("debugCaptureToggle").textContent=debugCaptureEnabled?"Pause capture":"Resume capture";renderDebugPackets();});
+  $("debugClear").addEventListener("click",clearDebugCapture);
+  $("debugFilter").addEventListener("input",renderDebugPackets);
+  $("debugExport").addEventListener("click",()=>{
+    const report={schema:"lego-mario-packet-trace/1",generatedAt:new Date().toISOString(),stats:{...debugStats,byType:{...debugStats.byType}},packets:debugPackets.slice()};
+    const blob=new Blob([JSON.stringify(report,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");
+    a.href=url;a.download="lego-mario-packet-trace-"+new Date().toISOString().replace(/[:.]/g,"-")+".json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  });
+
   $("portReadValue").addEventListener("click", async () => { try { const {port}=readPortInputs(); await readCurrentPortValue(port); } catch(e) { $("advancedPortStatus").textContent=e.message; } });
   $("portAllModeInfo").addEventListener("click", async () => { try { const {port,mode}=readPortInputs(); await requestAllModeMetadata(port,mode); } catch(e) { $("advancedPortStatus").textContent=e.message; } });
   $("portResetSensor").addEventListener("click", async () => { try { const {port}=readPortInputs(); await resetPortSensor(port); } catch(e) { $("advancedPortStatus").textContent=e.message; } });
@@ -1056,6 +1152,7 @@ console.log("Requested hub details and sensor updates.");
     const data = new Uint8Array(bytes);
     if (characteristic.writeValueWithoutResponse) await characteristic.writeValueWithoutResponse(data);
     else await characteristic.writeValue(data);
+    recordDebugPacket("TX",data,"write completed");
   }
   async function subscribe(port, mode, deltaInterval = 1, enabled = true) {
     // LWP 0x41: single-mode input setup; delta interval is a little-endian UInt32.
@@ -1086,9 +1183,11 @@ console.log("Requested hub details and sensor updates.");
       $("deviceName").textContent = device.name || "LEGO hub";
       setStatus("Connected · listening for sensor data", true);
       log("Connected to " + (device.name || "LEGO hub") + ". Listening for notifications.");
+      debugStartedAt=Date.now();
       portInfo.clear();
+      clearDebugCapture();
       activeModes.clear();healthProperties.clear();healthAlerts.clear();healthErrors.length=0;healthIoEvents.length=0;healthHubEvents.length=0;healthNotificationCount=0;healthModeAcks=0;healthCombinedValues=0;lastHealthReport=null;$("healthResults").innerHTML="<div class=\"muted\">Connected. Run diagnostics to collect a report.</div>";$("healthSummary").textContent="Ready for diagnostics";$("exportHealthReport").disabled=true;
-      renderPorts();
+      renderPorts();renderDebugPackets();
       log("Waiting for attached-I/O messages. Port types and supported input modes are discovered from the hub.");
       try { await writePacket([0x05,0x00,0x01,0x12,0x05]); log("Requested speaker volume using Mario-specific extension 0x12 (confirmed by project testing)."); } catch (e) { log("Volume read request failed: " + e.message); }
       try { await requestHubInfo(); } catch (e) { log("Hub info request failed: " + e.message); }
