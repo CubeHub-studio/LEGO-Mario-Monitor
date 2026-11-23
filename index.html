@@ -53,6 +53,34 @@
       <div class="warning">Only send packets you understand. Output commands may activate motors or other connected devices. This sender accepts packets up to 20 bytes; it does not split larger packets.</div>
     </article>
     <article class="card" style="grid-column:1/-1">
+      <h2>Standard hub &amp; port tools</h2>
+      <p class="muted">Additional documented LWP operations: query port capabilities, inspect mode metadata, subscribe to sensor values, and manage the advertised hub name. These requests do not send motor movement commands.</p>
+      <div class="actions">
+        <button id="scanPorts" disabled>Scan ports 0–15</button>
+        <button id="requestAllHubProps" disabled>Request all hub properties</button>
+      </div>
+      <div class="control-row" style="margin-top:12px;flex-wrap:wrap">
+        <label class="muted" for="portNumber">Port ID</label><input id="portNumber" type="number" min="0" max="255" value="0" style="width:90px;padding:9px;border:1px solid #384258;border-radius:9px;background:#0e1119;color:#f3f6fc">
+        <label class="muted" for="portMode">Mode</label><input id="portMode" type="number" min="0" max="255" value="0" style="width:90px;padding:9px;border:1px solid #384258;border-radius:9px;background:#0e1119;color:#f3f6fc">
+      </div>
+      <div class="actions" style="margin-top:10px">
+        <button id="portInfo" disabled>Request port capabilities</button>
+        <button id="portCombos" disabled>Request mode combinations</button>
+        <button id="portModeName" disabled>Request mode name</button>
+        <button id="portModeFormat" disabled>Request mode value format</button>
+        <button id="portSubscribe" disabled>Subscribe to mode</button>
+        <button id="portUnsubscribe" disabled>Unsubscribe from mode</button>
+      </div>
+      <div class="control-row" style="margin-top:14px;flex-wrap:wrap">
+        <label class="muted" for="hubNameInput">Advertising name (max 14 ASCII characters)</label>
+        <input id="hubNameInput" maxlength="14" autocomplete="off" placeholder="New hub name" style="flex:1;min-width:150px;padding:10px;border:1px solid #384258;border-radius:9px;background:#0e1119;color:#f3f6fc">
+        <button id="setHubName" disabled>Set hub name</button>
+        <button id="resetHubName" disabled>Reset name</button>
+      </div>
+      <p class="muted" id="portToolsStatus">Connect Mario to use standard port and hub-property requests.</p>
+      <div class="warning">Port scans ask for metadata; they do not assume every port exists. Changing the advertising name changes the Bluetooth name broadcast by the hub. The hub may reject operations it does not implement.</div>
+    </article>
+    <article class="card" style="grid-column:1/-1">
       <h2>JavaScript console · Mario API</h2>
       <p class="muted">Write ordinary JavaScript: variables, functions, arrays, loops, objects, classes, promises, async/await, try/catch and console logging work. The isolated runner exposes JavaScript built-ins plus the <code>mario</code> hardware library; it does not expose the page DOM.</p>
       <label for="jsEditor" class="muted">JavaScript script</label>
@@ -67,7 +95,7 @@ console.log("Requested hub details and sensor updates.");
       <div class="actions"><button class="primary" id="runScript">Run script</button><button id="stopScript" disabled>Stop script</button><button id="exampleScript">Load example</button></div>
       <p class="muted" id="scriptStatus" aria-live="polite">Ready. Connect Mario before using Bluetooth commands.</p>
       <div class="readout" id="scriptOutput" aria-live="polite">Script output will appear here.</div>
-      <p class="muted">Library: <code>mario.log(text)</code>, <code>mario.delay(ms)</code>, <code>mario.subscribe(port, mode, delta?)</code>, <code>mario.unsubscribe(port, mode)</code>, <code>mario.readPort(port)</code>, <code>mario.requestPortInfo(port, infoType)</code>, <code>mario.requestPortModeInfo(port, mode, infoType)</code>, <code>mario.requestHubProperty(property)</code>, <code>mario.getHubInfo()</code>, <code>mario.requestBatteryLevel()</code>, <code>mario.requestFirmwareVersion()</code>, <code>mario.requestHardwareVersion()</code>, <code>mario.requestRSSI()</code>, <code>mario.setVolume(0..100)</code>, <code>mario.requestButtonState()</code>, <code>mario.setBusyIndicator(enabled)</code>, <code>mario.enableBatteryUpdates()</code>, <code>mario.disableBatteryUpdates()</code>, <code>mario.setLiveHubStatus(enabled)</code>, <code>mario.setHubAlerts(enabled)</code>, <code>mario.sendHubAction(action)</code>, <code>mario.sendHubAlert(type, operation)</code>, <code>mario.requestAllAlertStates()</code>, <code>mario.sendHex(packet)</code>, <code>mario.disconnect()</code>.</p>
+      <p class="muted">Library: <code>mario.log(text)</code>, <code>mario.delay(ms)</code>, <code>mario.subscribe(port, mode, delta?)</code>, <code>mario.unsubscribe(port, mode)</code>, <code>mario.readPort(port)</code>, <code>mario.requestPortInfo(port, infoType)</code>, <code>mario.requestPortModeInfo(port, mode, infoType)</code>, <code>mario.requestAllPorts()</code>, <code>mario.setHubName(name)</code>, <code>mario.resetHubName()</code>, <code>mario.requestHubProperty(property)</code>, <code>mario.getHubInfo()</code>, <code>mario.requestBatteryLevel()</code>, <code>mario.requestFirmwareVersion()</code>, <code>mario.requestHardwareVersion()</code>, <code>mario.requestRSSI()</code>, <code>mario.setVolume(0..100)</code>, <code>mario.requestButtonState()</code>, <code>mario.setBusyIndicator(enabled)</code>, <code>mario.enableBatteryUpdates()</code>, <code>mario.disableBatteryUpdates()</code>, <code>mario.setLiveHubStatus(enabled)</code>, <code>mario.setHubAlerts(enabled)</code>, <code>mario.sendHubAction(action)</code>, <code>mario.sendHubAlert(type, operation)</code>, <code>mario.requestAllAlertStates()</code>, <code>mario.sendHex(packet)</code>, <code>mario.disconnect()</code>.</p>
       <div class="warning">Scripts can send Bluetooth commands to the connected hub. The volume API uses Mario's separately verified extension. <code>mario.displaytext(text)</code> remains unavailable: LEGO's published protocol does not document a custom-text display command for Mario.</div>
     </article>
     <article class="card" style="grid-column:1/-1">
@@ -126,6 +154,8 @@ console.log("Requested hub details and sensor updates.");
     </article>
     <article class="card"><h2>Bluetooth packet log</h2><div class="log" id="log"><div class="muted">Packets will appear here after connecting.</div></div></article>
   </section>
+  <div class="warning"><strong>Display limitation:</strong> The published standard LEGO Wireless Protocol defines hub properties/actions and port/sensor/motor messaging, but no standard command for writing arbitrary text or graphics to LEGO Mario’s belly LCD. Mario’s display is not exposed as a normal LPF2 output port in the documented message set. The monitor therefore cannot change the screen through a documented normal-hub command. This may require a separate Mario-specific firmware interface that is not part of the published standard protocol.</div>
+  <div class="warning"><strong>Output-command limitation:</strong> LWP also defines port output commands (0x81), combined input setup (0x42), and virtual-port synchronization (0x61). This monitor focuses on inspection and sensor input; it does not add generic motor-output controls because those commands can cause connected mechanisms to move unexpectedly.</div>
   <div class="warning"><strong>Camera limitation:</strong> LEGO Mario does not expose a camera image stream. The “Sensor view” is an honest visualization of sensor packets, not a live video feed. Unknown values are shown as raw bytes rather than guessed.</div>
   <p class="footer">Runs locally in your browser. No account, API key, server, or paid service. Bluetooth requires a supported browser and a secure page (HTTPS or localhost).</p>
 </main>
@@ -149,6 +179,7 @@ console.log("Requested hub details and sensor updates.");
     for (const id of ["busyOn","busyOff","refreshInfo","buttonState","readVolume","setVolume","volumeSlider","startUpdateDemo"]) $(id).disabled = !connected;
     for (const id of ["liveHubOn","liveHubOff","alertsOn","alertsOff"]) $(id).disabled = !connected;
     for (const id of ["eventBusyOn","eventBusyOff","eventVccOn","eventVccOff","eventDisconnect","eventPowerOff","eventAlertsRequest","eventAlertsEnable","eventAlertsDisable","eventLiveEnable","eventLiveDisable"]) $(id).disabled = !connected;
+    for (const id of ["scanPorts","requestAllHubProps","portInfo","portCombos","portModeName","portModeFormat","portSubscribe","portUnsubscribe","setHubName","resetHubName"]) $(id).disabled = !connected;
   }
   function hex(bytes) { return [...bytes].map(v=>v.toString(16).padStart(2,"0").toUpperCase()).join(" "); }
   function signedBytes(bytes) { return [...bytes].map(v=>v>127?v-256:v).join(", "); }
@@ -271,6 +302,15 @@ console.log("Requested hub details and sensor updates.");
       } else {
         log("Hub " + hub + " · Port information · port " + port + " · type " + infoType + " · " + hex(packet.slice(5)));
       }
+    } else if (type === 0x82 && packet.length >= 5) {
+      const port = packet[3], feedback = packet[4];
+      const states = [];
+      if (feedback & 0x01) states.push("buffer empty / command in progress");
+      if (feedback & 0x02) states.push("command completed");
+      if (feedback & 0x04) states.push("commands discarded");
+      if (feedback & 0x08) states.push("idle");
+      if (feedback & 0x10) states.push("busy/full");
+      log("Port output feedback · port " + port + " · " + (states.join(", ") || "flags 0x" + feedback.toString(16)));
     } else if (type === 0x44 && packet.length >= 6) {
       const port = packet[3], mode = packet[4], infoType = packet[5], payload = packet.slice(6);
       const info = portInfo.get(port) || {};
@@ -403,6 +443,15 @@ console.log("Requested hub details and sensor updates.");
         await writePacket(bytes);
         log("SCRIPT TX · " + hex(bytes));
         result = "Port mode information request sent.";
+      } else if (method === "requestAllPorts") {
+        await requestAllPorts();
+        result = "Port metadata requests sent for ports 0–15.";
+      } else if (method === "subscribe") {
+        const port = Number(args[0]), mode = Number(args[1] ?? 0), delta = Number(args[2] ?? 1);
+        if (!characteristic) throw new Error("Connect Mario before subscribing.");
+        await subscribe(port, mode, delta, true);
+        activeModes.set(port, mode);
+        result = "Port value notifications requested.";
       } else if (method === "requestHubProperty") {
         const property = Number(args[0]);
         if (!characteristic) throw new Error("Connect Mario before requesting hub properties.");
@@ -411,6 +460,12 @@ console.log("Requested hub details and sensor updates.");
         await writePacket(bytes);
         log("SCRIPT TX · " + hex(bytes));
         result = "Hub property request sent; inspect the packet log for the response.";
+      } else if (method === "setHubName") {
+        await setHubName(String(args[0] ?? ""));
+        result = "Hub advertising-name set request sent.";
+      } else if (method === "resetHubName") {
+        await resetHubName();
+        result = "Hub advertising-name reset request sent.";
       } else if (method === "setLiveHubStatus") {
         await setLiveHubStatus(Boolean(args[0]));
         result = "Live button, RSSI and battery property updates requested.";
@@ -521,6 +576,9 @@ console.log("Requested hub details and sensor updates.");
           requestPortInfo: (port, infoType = 0) => call("requestPortInfo", port, infoType),
           requestPortModeInfo: (port, mode, infoType = 0) => call("requestPortModeInfo", port, mode, infoType),
           requestHubProperty: property => call("requestHubProperty", property),
+          requestAllPorts: () => call("requestAllPorts"),
+          setHubName: name => call("setHubName", name),
+          resetHubName: () => call("resetHubName"),
           setLiveHubStatus: enabled => call("setLiveHubStatus", enabled),
           setHubAlerts: enabled => call("setHubAlerts", enabled),
           sendHubAction: (action, label = "Custom documented hub action") => call("sendHubAction", action, label),
@@ -598,6 +656,38 @@ console.log("Requested hub details and sensor updates.");
     await writePacket(bytes);
     log("TX · port mode information request · " + hex(bytes));
   }
+  async function requestAllPorts() {
+    if (!characteristic) throw new Error("Connect Mario first.");
+    $("portToolsStatus").textContent = "Requesting port information for IDs 0–15…";
+    for (let port = 0; port < 16; port++) {
+      await requestPortInfo(port, 1);
+      await new Promise(resolve => setTimeout(resolve, 45));
+    }
+    $("portToolsStatus").textContent = "Port scan requests sent. Only ports reported by the hub will appear.";
+  }
+  function readPortInputs() {
+    const port = Number($("portNumber").value), mode = Number($("portMode").value);
+    if (!Number.isInteger(port) || port < 0 || port > 255) throw new Error("Port ID must be 0–255.");
+    if (!Number.isInteger(mode) || mode < 0 || mode > 255) throw new Error("Mode must be 0–255.");
+    return {port, mode};
+  }
+  async function setHubName(name) {
+    if (!characteristic) throw new Error("Connect Mario first.");
+    if (!name || name.length > 14 || !/^[0-9A-Z_a-z]+$/.test(name)) throw new Error("Use 1–14 characters: A–Z, a–z, 0–9 or underscore.");
+    const payload = [...new TextEncoder().encode(name)];
+    const packet = [5 + payload.length, 0x00, 0x01, 0x01, 0x01, ...payload];
+    await writePacket(packet);
+    log("TX · set advertising name · " + hex(packet));
+    $("portToolsStatus").textContent = "Hub-name set request sent. Wait for a property update to see whether Mario accepts it.";
+  }
+  async function resetHubName() {
+    if (!characteristic) throw new Error("Connect Mario first.");
+    if (!confirm("Reset the Bluetooth advertising name to the hub's default name?")) return;
+    const packet = [0x05,0x00,0x01,0x01,0x04];
+    await writePacket(packet);
+    log("TX · reset advertising name · " + hex(packet));
+    $("portToolsStatus").textContent = "Hub-name reset request sent.";
+  }
   async function setLiveHubStatus(enabled) {
     if (!characteristic) throw new Error("Connect Mario first.");
     for (const property of [2,5,6]) {
@@ -668,6 +758,16 @@ console.log("Requested hub details and sensor updates.");
       log("TX · set speaker volume " + value + "% · 06 00 01 12 01 " + value.toString(16).padStart(2,"0").toUpperCase());
     } catch (e) { $("volumeStatus").textContent = "Volume was not sent: " + e.message; }
   }
+  $("scanPorts").addEventListener("click", async () => { try { await requestAllPorts(); } catch(e) { $("portToolsStatus").textContent = e.message; } });
+  $("requestAllHubProps").addEventListener("click", async () => { try { await requestHubInfo(); $("portToolsStatus").textContent = "Requested all standard hub properties."; } catch(e) { $("portToolsStatus").textContent = e.message; } });
+  $("portInfo").addEventListener("click", async () => { try { const {port}=readPortInputs(); await requestPortInfo(port,1); $("portToolsStatus").textContent="Port capability request sent for port "+port+"."; } catch(e) { $("portToolsStatus").textContent=e.message; } });
+  $("portCombos").addEventListener("click", async () => { try { const {port}=readPortInputs(); await requestPortInfo(port,2); $("portToolsStatus").textContent="Possible mode-combinations request sent for port "+port+"."; } catch(e) { $("portToolsStatus").textContent=e.message; } });
+  $("portModeName").addEventListener("click", async () => { try { const {port,mode}=readPortInputs(); await requestPortModeInfo(port,mode,0); $("portToolsStatus").textContent="Mode-name request sent."; } catch(e) { $("portToolsStatus").textContent=e.message; } });
+  $("portModeFormat").addEventListener("click", async () => { try { const {port,mode}=readPortInputs(); await requestPortModeInfo(port,mode,0x80); $("portToolsStatus").textContent="Mode value-format request sent."; } catch(e) { $("portToolsStatus").textContent=e.message; } });
+  $("portSubscribe").addEventListener("click", async () => { try { const {port,mode}=readPortInputs(); await subscribe(port,mode,1,true); activeModes.set(port,mode); $("portToolsStatus").textContent="Input notifications requested for port "+port+", mode "+mode+"."; } catch(e) { $("portToolsStatus").textContent=e.message; } });
+  $("portUnsubscribe").addEventListener("click", async () => { try { const {port,mode}=readPortInputs(); await subscribe(port,mode,1,false); activeModes.delete(port); $("portToolsStatus").textContent="Input notifications disabled for port "+port+", mode "+mode+"."; } catch(e) { $("portToolsStatus").textContent=e.message; } });
+  $("setHubName").addEventListener("click", async () => { try { await setHubName($("hubNameInput").value); } catch(e) { $("portToolsStatus").textContent=e.message; } });
+  $("resetHubName").addEventListener("click", async () => { try { await resetHubName(); } catch(e) { $("portToolsStatus").textContent=e.message; } });
   $("volumeSlider").addEventListener("input", e => { $("volumeValue").textContent = e.target.value + "%"; $("volumeStatus").textContent = "Selected " + e.target.value + "%. Release the slider to send this setting to Mario."; });
   $("volumeSlider").addEventListener("change", applyVolume);
   $("readVolume").addEventListener("click", readVolume);
