@@ -136,16 +136,148 @@
     add("LCD framebuffer / screen stream", "NOT AVAILABLE",
       "No display-frame or framebuffer channel is defined by standard LWP 3.0.00.", "Capabilities");
 
+    // Deeper, derived checks. These are interpretations of received data, not extra
+    // hardware tests; unknown or absent values remain explicitly inconclusive.
+    const numeric = (value) => {
+      const match = has(value) ? String(value).match(/-?\\d+(?:\\.\\d+)?/) : null;
+      return match ? Number(match[0]) : NaN;
+    };
+    const batteryPct = numeric(props[6]);
+    if (Number.isFinite(batteryPct)) {
+      add("Battery percentage range", batteryPct >= 0 && batteryPct <= 100 ? "PASS" : "WARNING",
+        "Reported value " + batteryPct + "% " + (batteryPct >= 0 && batteryPct <= 100 ? "is within the expected 0–100 range." : "is outside the expected 0–100 range; verify the property parser."),
+        "Power");
+      add("Battery charge band", batteryPct <= 15 ? "WARNING" : batteryPct <= 30 ? "INFO" : "PASS",
+        batteryPct + "% reported. Bands are simple display guidance, not LEGO-defined battery thresholds.",
+        "Power");
+    }
+    const rssi = numeric(props[5]);
+    if (Number.isFinite(rssi)) {
+      add("RSSI interpretation", rssi === 0 ? "INFO" : "INFO",
+        rssi === 0 ? "Zero is inconclusive: this may be an unavailable/unreported value, not a signal-quality measurement." : "Hub-reported RSSI value: " + rssi + ". The report does not convert it to distance or guarantee link quality.",
+        "Connection");
+    }
+    if (has(props[13])) add("Primary MAC privacy", "INFO",
+      "A hardware/network identifier is present. Consider redacting it before sharing this report publicly.", "Privacy");
+    if (has(props[14])) {
+      const secondary = String(props[14]).toUpperCase();
+      add("Secondary MAC interpretation", secondary === "00:00:00:00:00:00" ? "INFO" : "INFO",
+        secondary === "00:00:00:00:00:00" ? "All-zero address may mean unassigned or not exposed; it is not by itself a fault." : "Secondary address reported. Treat it as a device identifier.",
+        "Privacy");
+    }
+    if (has(props[3])) add("Firmware version captured", "INFO", String(props[3]) + " · retain this value when comparing later sessions.", "Identification");
+    if (has(props[4])) add("Hardware version captured", "INFO", String(props[4]) + " · useful for compatibility comparisons.", "Identification");
+    if (has(props[10])) add("Protocol version captured", "INFO", String(props[10]) + " · parser and feature support should be checked against this version.", "Identification");
+    if (has(props[18])) {
+      const volume = numeric(props[18]);
+      add("Speaker volume range", Number.isFinite(volume) && volume >= 0 && volume <= 100 ? "PASS" : "INFO",
+        Number.isFinite(volume) ? "Reported " + volume + "%." : "Volume response was received but could not be interpreted as a percentage.",
+        "Mario-specific");
+    }
+
+    const allModeNames = [];
+    let inputModeCount = 0, outputModeCount = 0, metadataFields = 0, namedModes = 0;
+    let portsWithInput = 0, portsWithOutput = 0, combinablePorts = 0;
+    for (const p of ports) {
+      const inputMask = Number(p.inputModes || 0), outputMask = Number(p.outputModes || 0);
+      const inputIds = Array.from({length:16}, (_, i) => i).filter(i => inputMask & (1 << i));
+      const outputIds = Array.from({length:16}, (_, i) => i).filter(i => outputMask & (1 << i));
+      inputModeCount += inputIds.length; outputModeCount += outputIds.length;
+      if (inputIds.length) portsWithInput++;
+      if (outputIds.length) portsWithOutput++;
+      if (Number(p.capabilities || 0) & 4) combinablePorts++;
+      const modesForPort = p.modes || {};
+      for (const [modeId, meta] of Object.entries(modesForPort)) {
+        const fields = Object.keys(meta || {});
+        metadataFields += fields.length;
+        if (has(meta.name)) namedModes++;
+        allModeNames.push("P" + p.id + "/M" + modeId + (has(meta.name) ? " " + meta.name : ""));
+        add("Port " + p.id + " mode " + modeId + " metadata fields", fields.length ? "INFO" : "WAITING",
+          fields.length ? fields.join(", ") + (has(meta.name) ? " · name: " + meta.name : "") +
+            (has(meta.valueFormat) ? " · value format: " + meta.valueFormat : "") : "No metadata fields received.",
+          "Mode detail");
+      }
+      if (has(p.inputModes)) add("Port " + p.id + " input-mode bitmap", "INFO",
+        "0x" + inputMask.toString(16).padStart(4,"0").toUpperCase() + " · modes " + (inputIds.join(", ") || "none"),
+        "Sensor metadata");
+      if (has(p.outputModes)) add("Port " + p.id + " output-mode bitmap", "INFO",
+        "0x" + outputMask.toString(16).padStart(4,"0").toUpperCase() + " · modes " + (outputIds.join(", ") || "none"),
+        "Sensor metadata");
+      if (p.latest && has(p.latest.hex)) add("Port " + p.id + " latest sample", "INFO",
+        "Mode " + p.latest.mode + " · HEX " + p.latest.hex + (has(p.latest.bytes) ? " · bytes " + p.latest.bytes : ""),
+        "Sensor data");
+    }
+    add("Port mode inventory", ports.length ? "INFO" : "UNAVAILABLE",
+      inputModeCount + " input mode(s), " + outputModeCount + " output mode(s) across " + ports.length + " reported port(s).",
+      "Sensor metadata");
+    add("Port capability inventory", "INFO",
+      portsWithInput + " port(s) advertise input modes; " + portsWithOutput + " advertise output modes; " + combinablePorts + " advertise logical-combinable capability.",
+      "Ports");
+    add("Mode metadata coverage", metadataFields ? "INFO" : "WAITING",
+      metadataFields + " metadata field(s) across " + namedModes + " named mode(s).",
+      "Sensor metadata");
+    add("Named sensor modes", namedModes ? "INFO" : "WAITING",
+      allModeNames.length ? allModeNames.join("; ") : "No mode names have been received yet.",
+      "Sensor metadata");
+
+    const errors = s.errors || [];
+    const errorGroups = new Map();
+    for (const e of errors) {
+      const key = "command 0x" + Number(e.command || 0).toString(16).padStart(2,"0").toUpperCase() +
+        " / " + (ERROR_NAMES[e.code] || ("code " + e.code));
+      errorGroups.set(key, (errorGroups.get(key) || 0) + 1);
+    }
+    const invalidPortQueries = errors.filter(e => e.code === 6 && e.command === 0x21).length;
+    add("Protocol error breakdown", errors.length ? "INFO" : "INFO",
+      errors.length ? [...errorGroups.entries()].map(([k,v]) => k + ": " + v).join("; ") : "No generic error packets captured.",
+      "Protocol");
+    add("Port-info request compatibility", invalidPortQueries ? "INFO" : "PASS",
+      invalidPortQueries ? invalidPortQueries + " invalid-command/parameter response(s) for port-info command 0x21. Some queried port/request combinations may be unsupported; correlate with the port ID and info type before treating this as a device fault." : "No invalid-command/parameter response for port-info command 0x21 was captured.",
+      "Protocol");
+    add("Protocol error rate", errors.length ? "INFO" : "PASS",
+      errors.length + " captured error/ack packet(s) across " + (s.notificationCount || 0) + " notifications. This is a session sample, not a certified reliability score.",
+      "Protocol");
+
+    const ioEvents = s.ioEvents || [];
+    const attachCount = ioEvents.filter(e => e.event === "attached").length;
+    const detachCount = ioEvents.filter(e => e.event === "detached").length;
+    const virtualCount = ioEvents.filter(e => e.event === "virtual attached").length;
+    add("I/O attachment event counts", ioEvents.length ? "INFO" : "NO EVENT",
+      attachCount + " attached, " + detachCount + " detached, " + virtualCount + " virtual-attached event(s).",
+      "Events");
+    add("Hub event count", (s.hubEvents || []).length ? "INFO" : "NO EVENT",
+      (s.hubEvents || []).length + " hub-originated action notification(s) captured.",
+      "Events");
+    add("Sensor packet coverage", ports.some(p => p.valueCount > 0) ? "INFO" : "NO DATA",
+      ports.reduce((n,p) => n + (p.valueCount || 0), 0) + " single-port value packet(s) observed across " + ports.length + " port(s).",
+      "Sensor data");
+    add("Connection data volume", s.connected ? "INFO" : "UNAVAILABLE",
+      (s.notificationCount || 0) + " notifications received during the current connection session.",
+      "Connection");
+
     const counts = rows.reduce((o, r) => { o[r.status] = (o[r.status] || 0) + 1; return o; }, {});
+    const unavailableStatuses = ["UNAVAILABLE","NO RESPONSE","NOT AVAILABLE","NO DATA","NO VALUE","NO PORTS REPORTED","NOT REPORTED","NO ACK","NO EVENT"];
+    const unavailable = unavailableStatuses.reduce((n, status) => n + (counts[status] || 0), 0);
     return {
-      schema: "lego-mario-device-health/1",
+      schema: "lego-mario-device-health/2",
       generatedAt: new Date().toISOString(),
       summary: {
         checks: rows.length,
         pass: counts.PASS || 0,
         warning: counts.WARNING || 0,
         waiting: counts.WAITING || 0,
-        unavailable: (counts.UNAVAILABLE || 0) + (counts["NO RESPONSE"] || 0) + (counts["NOT AVAILABLE"] || 0) + (counts["NO DATA"] || 0) + (counts["NO VALUE"] || 0) + (counts["NO PORTS REPORTED"] || 0) + (counts["NOT REPORTED"] || 0) + (counts["NO ACK"] || 0) + (counts["NO EVENT"] || 0)
+        info: counts.INFO || 0,
+        unavailable,
+        statusCounts: counts
+      },
+      diagnostics: {
+        portCount: ports.length, inputModeCount, outputModeCount, metadataFields,
+        namedModes, portsWithInput, portsWithOutput, combinablePorts,
+        capturedErrors: errors.length, invalidPortInfoRequests: invalidPortQueries,
+        singlePortValuePackets: ports.reduce((n,p) => n + (p.valueCount || 0), 0),
+        combinedValuePackets: s.combinedValues || 0,
+        notificationPackets: s.notificationCount || 0,
+        ioEvents: {attached:attachCount,detached:detachCount,virtualAttached:virtualCount}
       },
       rows
     };
