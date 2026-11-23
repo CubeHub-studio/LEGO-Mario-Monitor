@@ -82,10 +82,10 @@ console.log("Requested hub details and sensor updates.");
       <div class="actions"><button id="readVolume" disabled>Read current volume</button><button id="setVolume" disabled>Apply volume</button></div>
     </article>
     <article class="card"><h2>Update preparation · 10-second notice</h2>
-      <p class="muted">Shows a preparation notice using Mario's documented BUSY indicator, waits 10 seconds, then sends LEGO's documented Switch Off Hub action.</p>
+      <p class="muted">Activates Mario's documented BUSY light indication, waits 10 seconds, then sends LEGO's documented Switch Off Hub action.</p>
       <div class="metric" id="updateState">Ready · no update started</div><div class="progress"><span id="updateProgress"></span></div>
       <div class="muted" id="updatePercent">Waiting for connection</div>
-      <div class="actions" style="margin-top:12px"><button class="primary" id="startUpdateDemo" disabled>Tell Mario an update is coming</button><button id="stopUpdateDemo" disabled>Cancel</button></div>
+      <div class="actions" style="margin-top:12px"><button class="primary" id="startUpdateDemo" disabled>Signal update preparation to Mario</button><button id="stopUpdateDemo" disabled>Cancel</button></div>
       <div class="warning">Important: the published protocol does not define a remote restart command. After 10 seconds this sends Switch Off (0x01), so you must press Mario's power button to turn it back on. This does not install firmware; use the official LEGO app for actual updates.</div>
     </article>
     <article class="card"><h2>Bluetooth packet log</h2><div class="log" id="log"><div class="muted">Packets will appear here after connecting.</div></div></article>
@@ -575,11 +575,11 @@ console.log("Requested hub details and sensor updates.");
     $("startUpdateDemo").disabled = true;
     $("stopUpdateDemo").disabled = false;
     $("updateProgress").style.width = "0%";
-    $("updateState").textContent = "Mario is being prepared for an update…";
+    $("updateState").textContent = "BUSY light active · update preparation notice";
     $("updatePercent").textContent = "10 seconds remaining";
     try {
       await writePacket([0x04,0x00,0x02,0x05]); // Official Hub Action: activate BUSY indication.
-      log("Update preparation notice: activated documented BUSY indication (Hub Action 0x05).");
+      log("Update preparation signal: activated documented BUSY light indication (Hub Action 0x05).");
     } catch (error) {
       stopUpdateDemo("Could not notify Mario: " + error.message);
       return;
@@ -589,7 +589,7 @@ console.log("Requested hub details and sensor updates.");
       remaining--;
       $("updateProgress").style.width = ((10 - remaining) * 10) + "%";
       $("updatePercent").textContent = remaining + (remaining === 1 ? " second remaining" : " seconds remaining");
-      $("updateState").textContent = "Update preparation · " + remaining + "s";
+      $("updateState").textContent = "BUSY light active · " + remaining + "s remaining";
       if (remaining <= 0) {
         clearInterval(updateDemoTimer); updateDemoTimer = null;
         updateCountdown = setTimeout(async () => {
