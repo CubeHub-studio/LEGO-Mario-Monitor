@@ -76,6 +76,19 @@ console.log("Requested hub details and sensor updates.");
       <p class="muted" id="hubControlStatus">Connect Mario to enable hub controls.</p>
       <div class="muted">The official BUSY actions (0x05/0x06) request an RGB BUSY indication and preserve prior RGB settings. They do not display text on Mario’s screen. Hardware support for a visible RGB indicator is not guaranteed by the specification. These actions have no success acknowledgement defined: “sent” means the browser wrote the packet, not that an indicator visibly changed.</div>
     </article>
+    <article class="card">
+      <h2>Live hub inspector</h2>
+      <p class="muted">Standard LEGO hub properties reported by Mario. Values update when the hub sends notifications.</p>
+      <div id="hubProperties" class="log"><div class="muted">Connect to request hub properties.</div></div>
+      <div class="actions" style="margin-top:10px">
+        <button id="liveHubOn" disabled>Enable live status</button>
+        <button id="liveHubOff" disabled>Disable live status</button>
+        <button id="alertsOn" disabled>Enable hub alerts</button>
+        <button id="alertsOff" disabled>Disable hub alerts</button>
+      </div>
+      <p class="muted" id="liveStatus">Live status and alerts are off.</p>
+      <div class="warning"><strong>BOOTLOADER RESTRICTION:</strong> We will not allow you to have BOOTLOADER access for safety reasons. This monitor intentionally does not expose bootloader controls or firmware-flashing commands.</div>
+    </article>
     <article class="card"><h2>Volume · Mario speaker</h2>
       <div class="control-row"><input id="volumeSlider" class="range" type="range" min="0" max="100" step="1" value="50" disabled aria-label="Mario speaker volume"><output id="volumeValue" for="volumeSlider">50%</output></div>
       <p class="muted" id="volumeStatus">Connect Mario to read and change its speaker volume. Values use the hub's 0–100 percentage range.</p>
@@ -111,6 +124,7 @@ console.log("Requested hub details and sensor updates.");
     $("disconnect").disabled = !connected;
     $("sendPacket").disabled = !connected;
     for (const id of ["busyOn","busyOff","refreshInfo","buttonState","readVolume","setVolume","volumeSlider","startUpdateDemo"]) $(id).disabled = !connected;
+    for (const id of ["liveHubOn","liveHubOff","alertsOn","alertsOff"]) $(id).disabled = !connected;
   }
   function hex(bytes) { return [...bytes].map(v=>v.toString(16).padStart(2,"0").toUpperCase()).join(" "); }
   function signedBytes(bytes) { return [...bytes].map(v=>v>127?v-256:v).join(", "); }
@@ -172,6 +186,14 @@ console.log("Requested hub details and sensor updates.");
       }
       else if (property === 5 && data.length) value = (data[0] > 127 ? data[0]-256 : data[0]) + " RSSI units";
       else if (property === 2 && data.length) value = data[0] ? "pressed" : "released";
+      const hubBox = $("hubProperties");
+      if (hubBox.firstElementChild?.classList.contains("muted")) hubBox.replaceChildren();
+      const propertyRow = document.createElement("div");
+      propertyRow.className = "log-row";
+      propertyRow.textContent = (names[property] || ("Property 0x" + property.toString(16))) + ": " + value;
+      propertyRow.dataset.property = String(property);
+      const oldRow = hubBox.querySelector('[data-property="' + property + '"]');
+      if (oldRow) oldRow.replaceWith(propertyRow); else hubBox.append(propertyRow);
       log("Hub property · " + (names[property] || ("0x"+property.toString(16))) + " · operation 0x" + operation.toString(16) + " · " + value);
     } else if (type === 0x03 && packet.length >= 5) {
       log("Hub alert · type 0x" + packet[3].toString(16) + " · status " + (packet[4] === 0xFF ? "ALERT" : "OK"));
@@ -362,6 +384,12 @@ console.log("Requested hub details and sensor updates.");
         await writePacket(bytes);
         log("SCRIPT TX · " + hex(bytes));
         result = "Hub property request sent; inspect the packet log for the response.";
+      } else if (method === "setLiveHubStatus") {
+        await setLiveHubStatus(Boolean(args[0]));
+        result = "Live button, RSSI and battery property updates requested.";
+      } else if (method === "setHubAlerts") {
+        await setHubAlerts(Boolean(args[0]));
+        result = "Hub alert subscription requests sent.";
       } else if (method === "getHubInfo") {
         if (!characteristic) throw new Error("Connect Mario before requesting hub information.");
         for (const property of [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]) {
@@ -455,6 +483,8 @@ console.log("Requested hub details and sensor updates.");
           requestPortInfo: (port, infoType = 0) => call("requestPortInfo", port, infoType),
           requestPortModeInfo: (port, mode, infoType = 0) => call("requestPortModeInfo", port, mode, infoType),
           requestHubProperty: property => call("requestHubProperty", property),
+          setLiveHubStatus: enabled => call("setLiveHubStatus", enabled),
+          setHubAlerts: enabled => call("setHubAlerts", enabled),
           getHubInfo: () => call("getHubInfo"),
           requestBatteryLevel: () => call("requestHubProperty", 6),
           requestFirmwareVersion: () => call("requestHubProperty", 3),
@@ -527,6 +557,28 @@ console.log("Requested hub details and sensor updates.");
     await writePacket(bytes);
     log("TX · port mode information request · " + hex(bytes));
   }
+  async function setLiveHubStatus(enabled) {
+    if (!characteristic) throw new Error("Connect Mario first.");
+    for (const property of [2,5,6]) {
+      await writePacket([0x05,0x00,0x01,property,enabled ? 0x02 : 0x03]);
+      await new Promise(resolve => setTimeout(resolve, 60));
+    }
+    $("liveStatus").textContent = enabled
+      ? "Live updates requested for button state, RSSI and battery voltage."
+      : "Live property updates disabled.";
+    log("Hub property notifications " + (enabled ? "enabled" : "disabled") + " for button, RSSI and battery.");
+  }
+  async function setHubAlerts(enabled) {
+    if (!characteristic) throw new Error("Connect Mario first.");
+    for (const alertType of [1,2,3,4]) {
+      await writePacket([0x06,0x00,0x03,alertType,enabled ? 0x01 : 0x02,1]);
+      await new Promise(resolve => setTimeout(resolve, 60));
+    }
+    $("liveStatus").textContent = enabled
+      ? "Hub alert notifications requested: low voltage, high current, low signal and over-power."
+      : "Hub alert notifications disabled.";
+    log("Hub alert notifications " + (enabled ? "enabled" : "disabled") + " for alert types 1–4.");
+  }
   async function requestHubInfo() {
     if (!characteristic) throw new Error("Connect Mario before requesting hub information.");
     for (const property of [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]) {
@@ -559,6 +611,11 @@ console.log("Requested hub details and sensor updates.");
   $("busyOff").addEventListener("click", async () => { try { await writePacket([0x04,0x00,0x02,0x06]); $("hubControlStatus").textContent = "BUSY RGB reset packet sent. The protocol does not confirm a visible LED change."; log("TX · Hub Action 0x06 · Reset BUSY RGB indication · 04 00 02 06"); } catch(e) { $("hubControlStatus").textContent = e.message; } });
   $("refreshInfo").addEventListener("click", async () => { try { await requestHubInfo(); } catch(e) { $("hubControlStatus").textContent = e.message; } });
   $("buttonState").addEventListener("click", async () => { try { await writePacket([0x05,0x00,0x01,0x02,0x05]); $("hubControlStatus").textContent = "Button-state request sent; see packet log."; } catch(e) { $("hubControlStatus").textContent = e.message; } });
+  $("liveHubOn").addEventListener("click", async () => { try { await setLiveHubStatus(true); } catch(e) { $("liveStatus").textContent = e.message; } });
+  $("liveHubOff").addEventListener("click", async () => { try { await setLiveHubStatus(false); } catch(e) { $("liveStatus").textContent = e.message; } });
+  $("alertsOn").addEventListener("click", async () => { try { await setHubAlerts(true); } catch(e) { $("liveStatus").textContent = e.message; } });
+  $("alertsOff").addEventListener("click", async () => { try { await setHubAlerts(false); } catch(e) { $("liveStatus").textContent = e.message; } });
+
   let updateDemoTimer = null, updateCountdown = null;
   function stopUpdateDemo(message = "Preparation cancelled.") {
     if (updateDemoTimer) clearInterval(updateDemoTimer);
