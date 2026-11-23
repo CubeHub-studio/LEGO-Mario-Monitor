@@ -80,7 +80,7 @@
       <p class="muted" id="portToolsStatus">Connect Mario to use standard port and hub-property requests.</p>
       <div class="warning">Port scans ask for metadata; they do not assume every port exists. Changing the advertising name changes the Bluetooth name broadcast by the hub. The hub may reject operations it does not implement.</div>
     </article>
-    <article class="card" id="deviceHealthCard" style="grid-column:1/-1"><h2>Device Health</h2><p class="muted">Run a read-only check of standard hub properties, alerts, attached ports and sensor metadata. Missing responses are unavailable, not automatically faults.</p><div class="actions"><button class="primary" id="runHealthCheck" disabled>Run all diagnostics</button><span class="muted" id="healthRunStatus">Connect Mario to begin.</span></div><div class="progress"><span id="healthProgress"></span></div><div id="healthResults" class="log"><div class="muted">No diagnostic run yet.</div></div><div class="warning">This reads device information and requests sensor input metadata. It does not test motors, change sensor modes, switch Mario off or install firmware.</div></article>
+    <article class="card" id="deviceHealthCard" style="grid-column:1/-1"><h2>Device Health</h2><p class="muted">Run a read-only check of standard hub properties, alerts, attached ports and sensor metadata. Missing responses are unavailable, not automatically faults.</p><div class="actions"><button class="primary" id="runHealthCheck" disabled>Run all diagnostics</button><button id="exportHealthReport" disabled>Export JSON report</button><span class="muted" id="healthRunStatus">Connect Mario to begin.</span></div><div class="progress"><span id="healthProgress"></span></div><div id="healthSummary" class="metric">No report yet</div><div id="healthResults" class="log"><div class="muted">No diagnostic run yet.</div></div><div class="warning">This reads device information and requests sensor input metadata. It does not test motors, change sensor modes, switch Mario off or install firmware.</div></article>
     <article class="card" style="grid-column:1/-1">
       <h2>Advanced port diagnostics</h2>
       <p class="muted">Inspect the documented LPF2 sensor metadata and configure input notifications. These controls do not issue motor-output commands.</p>
@@ -190,6 +190,7 @@ console.log("Requested hub details and sensor updates.");
   <div class="warning"><strong>Camera limitation:</strong> LEGO Mario does not expose a camera image stream. The “Sensor view” is an honest visualization of sensor packets, not a live video feed. Unknown values are shown as raw bytes rather than guessed.</div>
   <p class="footer">Runs locally in your browser. No account, API key, server, or paid service. Bluetooth requires a supported browser and a secure page (HTTPS or localhost).</p>
 </main>
+<script src="device-health.js"></script>
 <script>
 (() => {
   "use strict";
@@ -201,39 +202,64 @@ console.log("Requested hub details and sensor updates.");
   const portInfo = new Map();
   const decoder = new TextDecoder();
   const healthProperties = new Map();
-  const healthAlerts = new Set();
-  let healthRunning = false;
+  const healthAlerts = new Map();
+  const healthErrors = [];
+  let healthRunning = false, healthNotificationCount = 0, healthModeAcks = 0, healthCombinedValues = 0, lastHealthReport = null;
   function renderHealth() {
-    const box=$("healthResults"), rows=[];
-    const add=(label,state,detail)=>rows.push({label,state,detail});
-    add("Bluetooth connection",characteristic?"PASS":"UNAVAILABLE",characteristic?"Connected.":"Not connected.");
-    add("Hub properties",healthProperties.size?"PASS":"WAITING",healthProperties.size+" of 15 standard properties replied.");
-    for(const [id,label] of [[3,"Firmware"],[4,"Hardware"],[5,"RSSI"],[6,"Battery"],[7,"Battery type"]]){const v=healthProperties.get(id);add(label,v?"PASS":"UNAVAILABLE",v||"No reply.");}
-    add("Hub alerts",healthAlerts.size?"PASS":"UNAVAILABLE",healthAlerts.size+" of 4 alert types replied.");
-    add("Attached ports",portInfo.size?"PASS":"UNAVAILABLE",portInfo.size+" port(s) reported.");
-    const modes=[...portInfo.values()].reduce((n,p)=>n+Object.keys(p.modes||{}).length,0);
-    add("Port mode metadata",modes?"PASS":"UNAVAILABLE",modes+" mode record(s).");
-    const vol=healthProperties.get(18);add("Speaker volume",vol?"PASS":"UNAVAILABLE",vol||"No response from Mario volume extension.");
-    add("LCD stream","NOT AVAILABLE","Standard LWP has no LCD framebuffer or video stream.");
-    box.replaceChildren();
-    for(const x of rows){const row=document.createElement("div"),strong=document.createElement("strong"),detail=document.createElement("div");row.className="log-row";strong.textContent=x.state+" - "+x.label;detail.textContent=x.detail;row.append(strong,detail);box.append(row);}
+    const snapshot = {
+      connected: !!characteristic,
+      properties: Object.fromEntries(healthProperties),
+      alerts: Object.fromEntries(healthAlerts),
+      ports: [...portInfo.entries()].map(([id, p]) => ({id, ...p})),
+      errors: healthErrors.slice(), notificationCount: healthNotificationCount,
+      modeAcks: healthModeAcks, combinedValues: healthCombinedValues
+    };
+    lastHealthReport = window.DeviceHealthDiagnostics.buildReport(snapshot);
+    const {summary, rows} = lastHealthReport;
+    $("healthSummary").textContent = summary.checks + " checks · " + summary.pass + " pass · " + summary.warning + " warning · " + summary.unavailable + " unavailable";
+    const box = $("healthResults"); box.replaceChildren();
+    for (const item of rows) {
+      const entry = document.createElement("div"), heading = document.createElement("strong"), detail = document.createElement("div");
+      entry.className = "log-row"; heading.textContent = item.status + " · " + item.name; detail.textContent = item.detail;
+      entry.append(heading, detail); box.append(entry);
+    }
+    $("exportHealthReport").disabled = false;
   }
   async function runDeviceHealth(){
     if(!characteristic)throw new Error("Connect Mario first.");
     if(healthRunning)return;
-    healthRunning=true;$("runHealthCheck").disabled=true;$("healthProgress").style.width="5%";
-    $("healthRunStatus").textContent="Requesting properties, alerts and ports...";
-    healthProperties.clear();healthAlerts.clear();renderHealth();
+    healthRunning=true;$("runHealthCheck").disabled=true;$("exportHealthReport").disabled=true;$("healthProgress").style.width="2%";
+    $("healthRunStatus").textContent="Requesting all standard hub properties and alert states...";
+    healthProperties.clear();healthAlerts.clear();healthErrors.length=0;healthNotificationCount=0;healthModeAcks=0;healthCombinedValues=0;
+    renderHealth();
     try{
-      await requestHubInfo();$("healthProgress").style.width="30%";
-      await requestAllAlertStates();$("healthProgress").style.width="48%";
-      await requestAllPorts();$("healthProgress").style.width="75%";
-      await readVolume();await new Promise(resolve=>setTimeout(resolve,2800));
-      $("healthProgress").style.width="100%";$("healthRunStatus").textContent="Requests complete; results reflect replies received.";
-      renderHealth();log("Device Health checks completed.");
+      await requestHubInfo(); $("healthProgress").style.width="12%";
+      await requestAllAlertStates(); $("healthProgress").style.width="22%";
+      await requestAllPorts(); $("healthProgress").style.width="35%";
+      $("healthRunStatus").textContent="Waiting for port discovery, then inspecting reported ports...";
+      await new Promise(resolve=>setTimeout(resolve,1500));
+      const ports = [...portInfo.entries()].filter(([id])=>id>=0 && id<=15).slice(0,8);
+      for(let i=0;i<ports.length;i++){
+        const [port,info]=ports[i];
+        await requestPortInfo(port,0);
+        if(info.capabilities & 0x04) await requestPortInfo(port,2);
+        const modes=[];
+        for(let mode=0;mode<16;mode++) if(info.inputModes & (1<<mode)) modes.push(mode);
+        for(const mode of modes) await requestAllModeMetadata(port,mode);
+        $("healthProgress").style.width=(35+Math.round(48*(i+1)/Math.max(1,ports.length)))+"%";
+      }
+      await readVolume();
+      await new Promise(resolve=>setTimeout(resolve,3200));
+      $("healthProgress").style.width="100%";$("healthRunStatus").textContent="Diagnostic requests finished. Only responses actually received are counted.";
+      renderHealth();log("Device Health completed · "+lastHealthReport.summary.checks+" report rows.");
     }catch(error){$("healthRunStatus").textContent="Stopped: "+error.message;renderHealth();throw error;}
     finally{healthRunning=false;$("runHealthCheck").disabled=!characteristic;}
   }
+  $("exportHealthReport").addEventListener("click",()=>{
+    if(!lastHealthReport)return;
+    const blob=new Blob([JSON.stringify(lastHealthReport,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="lego-mario-device-health-"+new Date().toISOString().replace(/[:.]/g,"-")+".json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  });
 
 
   function setStatus(text, connected=false) {
@@ -294,12 +320,12 @@ console.log("Requested hub details and sensor updates.");
     log("Port " + port + " · mode " + mode + " · HEX " + (hex(data) || "(empty)") + " · bytes [" + signedBytes(data) + "]");
   }
   function parsePacket(packet) {
+    healthNotificationCount++;
     if (packet.length < 3) { log("Short packet: " + hex(packet)); return; }
     const hub = packet[1], type = packet[2];
     if (type === 0x01 && packet.length >= 5) {
       const property = packet[3], operation = packet[4], data = packet.slice(5);
-      healthProperties.set(property, value);
-      const names = {1:"Hub name",2:"Button",3:"Firmware version",4:"Hardware version",5:"RSSI",6:"Battery level",7:"Battery type",8:"Manufacturer",9:"Radio firmware",10:"LWP version",11:"System type",18:"Speaker volume"};
+      const names = {1:"Hub name",2:"Button",3:"Firmware version",4:"Hardware version",5:"RSSI",6:"Battery level",7:"Battery type",8:"Manufacturer",9:"Radio firmware",10:"LWP version",11:"System type",12:"Hardware network ID",13:"Primary MAC",14:"Secondary MAC",15:"Hardware network family",18:"Speaker volume"};
       let value = hex(data);
       if ([1,8,9].includes(property)) value = decoder.decode(new Uint8Array(data)).replace(/\0/g,"");
       else if ((property === 6 || property === 0x12) && data.length) value = data[0] + "%";
@@ -320,6 +346,8 @@ console.log("Requested hub details and sensor updates.");
       } else if ((property === 13 || property === 14) && data.length === 6) value = [...data].map(v=>v.toString(16).padStart(2,"0")).join(":").toUpperCase();
       else if (property === 12 && data.length) value = "Network ID " + data[0];
       else if (property === 15 && data.length) value = "Family " + data[0];
+      healthProperties.set(property, value);
+      renderHealth();
       const hubBox = $("hubProperties");
       if (hubBox.firstElementChild?.classList.contains("muted")) hubBox.replaceChildren();
       const propertyRow = document.createElement("div");
@@ -330,7 +358,8 @@ console.log("Requested hub details and sensor updates.");
       if (oldRow) oldRow.replaceWith(propertyRow); else hubBox.append(propertyRow);
       log("Hub property · " + (names[property] || ("0x"+property.toString(16))) + " · operation 0x" + operation.toString(16) + " · " + value);
     } else if (type === 0x03 && packet.length >= 5) {
-      healthAlerts.add(packet[3]);
+      healthAlerts.set(packet[3], packet[4] === 0xFF);
+      renderHealth();
       log("Hub alert · type 0x" + packet[3].toString(16) + " · status " + (packet[4] === 0xFF ? "ALERT" : "OK"));
     } else if (type === 0x04 && packet.length >= 5) {
       const port = packet[3], event = packet[4];
@@ -348,13 +377,19 @@ console.log("Requested hub details and sensor updates.");
         log("Virtual-port attachment detected; raw packet retained in the log.");
       }
     } else if (type === 0x05 && packet.length >= 5) {
-      log("Hub error/ack · command 0x" + packet[3].toString(16) + " · code 0x" + packet[4].toString(16));
+      healthErrors.push({command:packet[3],code:packet[4]});
+      if(healthErrors.length>40)healthErrors.shift();
+      renderHealth();
+      const errorNames={1:"ACK",2:"MACK",3:"Buffer overflow",4:"Timeout",5:"Command not recognized",6:"Invalid use",7:"Overcurrent",8:"Internal error"};
+      log("Hub error/ack · command 0x" + packet[3].toString(16) + " · " + (errorNames[packet[4]]||("code 0x"+packet[4].toString(16))));
     } else if (type === 0x45 && packet.length >= 5) {
       const port = packet[3], data = packet.slice(4);
+      const portRecord=portInfo.get(port)||{};portRecord.valueCount=(portRecord.valueCount||0)+1;portInfo.set(port,portRecord);renderHealth();
       showPort(port, activeModes.get(port) ?? "unknown", data, packet);
       log("Hub " + hub + " · Port Value (0x45) · port " + port + " · " + hex(data));
     } else if (type === 0x46 && packet.length >= 6) {
       const port = packet[3], pointers = packet[4] | (packet[5] << 8), data = packet.slice(6);
+      healthCombinedValues++;const portRecord=portInfo.get(port)||{};portRecord.valueCount=(portRecord.valueCount||0)+1;portInfo.set(port,portRecord);renderHealth();
       log("Hub " + hub + " · Combined value (0x46) · port " + port + " · mode bits 0x" + pointers.toString(16) + " · " + hex(data));
       showPort(port, "combined", data, packet);
     } else if (type === 0x43 && packet.length >= 5) {
@@ -365,7 +400,7 @@ console.log("Requested hub details and sensor updates.");
         const outputModes = packet[9] | (packet[10] << 8);
         const info = portInfo.get(port) || {};
         Object.assign(info, {capabilities,modeCount,inputModes,outputModes});
-        portInfo.set(port, info);
+        portInfo.set(port, info);renderHealth();
         log("Port " + port + " capabilities 0x" + capabilities.toString(16) + " · " + modeCount + " modes · inputs 0x" + inputModes.toString(16) + " · outputs 0x" + outputModes.toString(16));
         renderPorts();
         const modes = [];
@@ -396,6 +431,7 @@ console.log("Requested hub details and sensor updates.");
       }
     } else if (type === 0x47 && packet.length >= 10) {
       const port=packet[3],mode=packet[4],delta=packet[5]|(packet[6]<<8)|(packet[7]<<16)|(packet[8]<<24),enabled=packet[9]===1;
+      healthModeAcks++;renderHealth();
       log("Port input format acknowledged · port "+port+" · mode "+mode+" · delta "+(delta>>>0)+" · notifications "+(enabled?"enabled":"disabled"));
     } else if (type === 0x48 && packet.length >= 7) {
       const port=packet[3],control=packet[4],pointer=packet[5]|(packet[6]<<8);
@@ -419,6 +455,7 @@ console.log("Requested hub details and sensor updates.");
       else if (infoType === 0x80) info.modes[mode].valueFormat = hex(payload);
       else info.modes[mode][modeInfoNames[infoType] || ("info_"+infoType)] = hex(payload);
       portInfo.set(port, info);
+      renderHealth();
       log("Hub " + hub + " · Port " + port + " mode " + mode + " · " + (modeInfoNames[infoType] || ("info " + infoType)) + " · " + (info.modes[mode].name || hex(payload)));
       renderPorts();
     } else {
@@ -1039,7 +1076,7 @@ console.log("Requested hub details and sensor updates.");
       setStatus("Connected · listening for sensor data", true);
       log("Connected to " + (device.name || "LEGO hub") + ". Listening for notifications.");
       portInfo.clear();
-      activeModes.clear();
+      activeModes.clear();healthProperties.clear();healthAlerts.clear();healthErrors.length=0;healthNotificationCount=0;healthModeAcks=0;healthCombinedValues=0;lastHealthReport=null;$("healthResults").innerHTML="<div class=\"muted\">Connected. Run diagnostics to collect a report.</div>";$("healthSummary").textContent="Ready for diagnostics";$("exportHealthReport").disabled=true;
       renderPorts();
       log("Waiting for attached-I/O messages. Port types and supported input modes are discovered from the hub.");
       try { await writePacket([0x05,0x00,0x01,0x12,0x05]); log("Requested speaker volume using Mario-specific extension 0x12 (confirmed by project testing)."); } catch (e) { log("Volume read request failed: " + e.message); }
