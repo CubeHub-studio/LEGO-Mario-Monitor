@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#11131b">
+  <title>LEGO Mario Monitor</title>
+  <style>
+    :root{color-scheme:dark;--bg:#10121a;--panel:#191d29;--panel2:#202637;--line:#30394d;--muted:#9aa6bc;--text:#f3f6fc;--accent:#ffcf35;--green:#59d69a;--red:#ff7777}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#20283b 0,#10121a 55%);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+    .wrap{max-width:1100px;margin:auto;padding:24px 16px 48px}.top{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+    h1{font-size:clamp(25px,5vw,38px);line-height:1.1;margin:0}.sub{color:var(--muted);margin:8px 0 0}.actions{display:flex;gap:9px;flex-wrap:wrap}
+    button{border:1px solid var(--line);border-radius:12px;padding:11px 16px;background:var(--panel2);color:var(--text);font-weight:700;font-size:14px;cursor:pointer}
+    button.primary{background:var(--accent);border-color:var(--accent);color:#191919}button:disabled{opacity:.45;cursor:not-allowed}
+    .status{display:flex;align-items:center;gap:9px;background:var(--panel);border:1px solid var(--line);padding:12px 14px;border-radius:14px;margin:22px 0}
+    .dot{width:10px;height:10px;border-radius:50%;background:#778197}.dot.on{background:var(--green);box-shadow:0 0 12px #59d69a88}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{background:linear-gradient(145deg,#1c2230,#171b26);border:1px solid var(--line);border-radius:17px;padding:16px;min-width:0}
+    .card h2{font-size:14px;text-transform:uppercase;letter-spacing:.09em;color:#c3cee0;margin:0 0 12px}.camera{grid-column:1/-1}
+    .sensor-view{height:230px;border:1px solid #384258;border-radius:13px;background:linear-gradient(135deg,#141925,#242e42);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+    .sensor-view:before,.sensor-view:after{content:"";position:absolute;border:1px solid #56647d55;border-radius:50%;width:190px;height:190px}
+    .sensor-view:after{width:125px;height:125px}.view-inner{z-index:1;text-align:center;padding:15px}.view-icon{font-size:40px}.view-label{font-weight:800;font-size:18px;margin-top:5px}.view-note{font-size:12px;color:var(--muted);max-width:310px}
+    .readout{font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;background:#0e1119;border:1px solid #30394d;border-radius:10px;padding:10px;min-height:42px;color:#d8e1f1}
+    .muted{color:var(--muted);font-size:12px}.metric{font-size:22px;font-weight:800;margin:4px 0 8px}.tag{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 8px;font-size:11px;color:#cbd5e5;margin:0 5px 5px 0}
+    .log{max-height:230px;overflow:auto;display:flex;flex-direction:column;gap:6px}.log-row{font:12px/1.4 ui-monospace,monospace;color:#c9d4e7;border-bottom:1px solid #30394d;padding:5px 0;overflow-wrap:anywhere}
+    .footer{color:var(--muted);font-size:12px;margin-top:18px}.warning{border-left:3px solid var(--accent);padding:10px 12px;background:#272416;border-radius:8px;color:#e9dfb9;font-size:13px;margin-top:14px}
+    @media(max-width:650px){.grid{grid-template-columns:1fr}.camera{grid-column:auto}.sensor-view{height:190px}.wrap{padding-top:18px}}
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <div><h1>LEGO Mario Monitor</h1><p class="sub">Live Bluetooth sensor monitor · read-only dashboard</p></div>
+    <div class="actions"><button class="primary" id="connect">Connect Mario</button><button id="disconnect" disabled>Disconnect</button></div>
+  </header>
+  <section class="status" aria-live="polite"><span class="dot" id="dot"></span><strong id="status">Not connected</strong><span class="muted" id="deviceName"></span></section>
+  <section class="grid">
+    <article class="card camera">
+      <h2>Sensor view · not a camera</h2>
+      <div class="sensor-view">
+        <div class="view-inner"><div class="view-icon" id="viewIcon">◎</div><div class="view-label" id="viewTitle">Waiting for sensor data</div><div class="view-note" id="viewNote">Mario has no camera. This panel visualizes the latest colour/barcode sensor packet; it cannot show a picture of the room.</div></div>
+      </div>
+      <p class="muted">Latest colour / barcode input · Port 1 · IO type 0x49</p>
+      <div class="readout" id="colourValue">No data received</div>
+    </article>
+    <article class="card"><h2>Movement sensor</h2><div class="metric" id="movementState">Waiting…</div><div class="muted">Port 0 · IO type 0x47 · modes 0–1</div><div class="readout" id="movementValue">No data received</div></article>
+    <article class="card"><h2>Pants / accessory sensor</h2><div class="metric" id="pantsState">Waiting…</div><div class="muted">Port 2 · IO type 0x4A · mode 0</div><div class="readout" id="pantsValue">No data received</div></article>
+    <article class="card"><h2>Events / debug</h2><div class="metric" id="eventsState">Waiting…</div><div class="muted">Port 3 · IO type 0x46 · modes 0–3</div><div class="readout" id="eventsValue">No data received</div></article>
+    <article class="card"><h2>Port 4 · unknown device</h2><div class="metric" id="port4State">Waiting…</div><div class="muted">IO type 0x55 · FS Code / Events</div><div class="readout" id="port4Value">No data received</div></article>
+    <article class="card"><h2>Bluetooth packet log</h2><div class="log" id="log"><div class="muted">Packets will appear here after connecting.</div></div></article>
+  </section>
+  <div class="warning"><strong>Camera limitation:</strong> LEGO Mario does not expose a camera image stream. The “Sensor view” is an honest visualization of sensor packets, not a live video feed. Unknown values are shown as raw bytes rather than guessed.</div>
+  <p class="footer">Runs locally in your browser. No account, API key, server, or paid service. Bluetooth requires a supported browser and a secure page (HTTPS or localhost).</p>
+</main>
+<script>
+(() => {
+  "use strict";
+  const SERVICE = "00001623-1212-efde-1623-785feabcd123";
+  const CHARACTERISTIC = "00001624-1212-efde-1623-785feabcd123";
+  const $ = id => document.getElementById(id);
+  let device = null, characteristic = null;
+  const decoder = new TextDecoder();
+
+  function setStatus(text, connected=false) {
+    $("status").textContent = text;
+    $("dot").classList.toggle("on", connected);
+    $("connect").disabled = connected;
+    $("disconnect").disabled = !connected;
+  }
+  function hex(bytes) { return [...bytes].map(v=>v.toString(16).padStart(2,"0").toUpperCase()).join(" "); }
+  function signedBytes(bytes) { return [...bytes].map(v=>v>127?v-256:v).join(", "); }
+  function log(message) {
+    const row = document.createElement("div");
+    row.className = "log-row";
+    row.textContent = new Date().toLocaleTimeString() + "  " + message;
+    const box = $("log");
+    if (box.firstElementChild?.classList.contains("muted")) box.replaceChildren();
+    box.prepend(row);
+    while (box.children.length > 60) box.lastElementChild.remove();
+  }
+  function showPort(port, mode, data, fullPacket) {
+    const bytes = data.slice();
+    const value = "mode " + mode + " · HEX: " + (hex(bytes) || "(empty)") + " · bytes: [" + signedBytes(bytes) + "]";
+    if (port === 0) {
+      $("movementState").textContent = "Port 0 · mode " + mode;
+      $("movementValue").textContent = value;
+    } else if (port === 1) {
+      $("colourValue").textContent = value;
+      $("viewTitle").textContent = "Sensor packet received";
+      $("viewIcon").textContent = "▦";
+      $("viewNote").textContent = "Port 1 data is shown exactly as received. The packet has not been interpreted as an image.";
+      $("viewIcon").style.color = "#ffcf35";
+    } else if (port === 2) {
+      $("pantsState").textContent = "Port 2 · mode " + mode;
+      $("pantsValue").textContent = value;
+    } else if (port === 3) {
+      $("eventsState").textContent = "Port 3 · mode " + mode;
+      $("eventsValue").textContent = value;
+    } else if (port === 4) {
+      $("port4State").textContent = "Port 4 · mode " + mode;
+      $("port4Value").textContent = value;
+    } else {
+      log("Port " + port + " mode " + mode + ": " + hex(bytes));
+    }
+  }
+  function parsePacket(packet) {
+    if (packet.length < 3) { log("Short packet: " + hex(packet)); return; }
+    const hub = packet[1], type = packet[2];
+    if (type === 0x45 && packet.length >= 5) {
+      const port = packet[3], data = packet.slice(4);
+      showPort(port, "?", data, packet);
+      log("Hub " + hub + " · Port Value (0x45) · port " + port + " · " + hex(data));
+    } else if (type === 0x46 && packet.length >= 6) {
+      const port = packet[3], pointers = packet[4] | (packet[5] << 8), data = packet.slice(6);
+      log("Hub " + hub + " · Combined value (0x46) · port " + port + " · mode bits 0x" + pointers.toString(16) + " · " + hex(data));
+      showPort(port, "combined", data, packet);
+    } else if (type === 0x43 && packet.length >= 6) {
+      log("Hub " + hub + " · Port information · port " + packet[3] + " · " + hex(packet.slice(4)));
+    } else if (type === 0x44 && packet.length >= 6) {
+      const nameBytes = packet.slice(5);
+      const name = decoder.decode(new Uint8Array(nameBytes)).replace(/[^\x20-\x7E]/g,"");
+      log("Hub " + hub + " · Mode info · port " + packet[3] + " · mode " + packet[4] + " · " + (name || hex(nameBytes)));
+    } else {
+      log("Hub " + hub + " · message 0x" + type.toString(16).padStart(2,"0") + " · " + hex(packet));
+    }
+  }
+  function handleNotification(event) {
+    const bytes = new Uint8Array(event.target.value.buffer, event.target.value.byteOffset, event.target.value.byteLength);
+    let offset = 0;
+    while (offset < bytes.length) {
+      let length = bytes[offset], header = 1;
+      if (length & 0x80) {
+        if (offset + 1 >= bytes.length) break;
+        length = ((length & 0x7f) << 8) | bytes[offset + 1];
+        header = 2;
+      }
+      if (length < 3 || offset + length > bytes.length) {
+        log("Unparsed notification bytes: " + hex(bytes.slice(offset)));
+        break;
+      }
+      parsePacket(bytes.slice(offset, offset + length));
+      offset += length;
+    }
+  }
+  async function writePacket(bytes) {
+    if (!characteristic) throw new Error("Not connected to the hub characteristic.");
+    const data = new Uint8Array(bytes);
+    if (characteristic.writeValueWithoutResponse) await characteristic.writeValueWithoutResponse(data);
+    else await characteristic.writeValue(data);
+  }
+  async function subscribe(port, mode) {
+    // LWP 0x41: single-mode input setup, delta interval 1, notifications enabled.
+    await writePacket([0x0A,0x00,0x41,port,mode,0x01,0x00,0x00,0x00,0x01]);
+    await new Promise(resolve => setTimeout(resolve, 90));
+  }
+  async function connect() {
+    if (!navigator.bluetooth) {
+      setStatus("Web Bluetooth is unavailable in this browser.");
+      log("Try Chrome on Android or desktop Chrome/Edge over HTTPS.");
+      return;
+    }
+    try {
+      setStatus("Choose your LEGO hub…");
+      device = await navigator.bluetooth.requestDevice({acceptAllDevices:true, optionalServices:[SERVICE]});
+      device.addEventListener("gattserverdisconnected", disconnected);
+      setStatus("Connecting to " + (device.name || "LEGO hub") + "…");
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE);
+      characteristic = await service.getCharacteristic(CHARACTERISTIC);
+      await characteristic.startNotifications();
+      characteristic.addEventListener("characteristicvaluechanged", handleNotification);
+      $("deviceName").textContent = device.name || "LEGO hub";
+      setStatus("Connected · listening for sensor data", true);
+      log("Connected to " + (device.name || "LEGO hub") + ". Listening for notifications.");
+      // These are the input modes documented in the project research notes.
+      const subscriptions = [[0,0],[0,1],[1,0],[1,1],[2,0],[3,0],[3,1],[3,2],[3,3],[4,0],[4,1]];
+      for (const [port,mode] of subscriptions) {
+        try { await subscribe(port,mode); log("Requested notifications: port " + port + ", mode " + mode); }
+        catch (error) { log("Could not subscribe port " + port + " mode " + mode + ": " + error.message); }
+      }
+      log("Subscription requests sent. Move Mario over a tile or move the figure to generate readings.");
+    } catch (error) {
+      if (error.name === "NotFoundError") setStatus("No device selected.");
+      else setStatus("Connection failed: " + error.message);
+      log("Bluetooth error: " + error.message);
+      if (device?.gatt?.connected) device.gatt.disconnect();
+    }
+  }
+  function disconnected() {
+    characteristic = null;
+    $("deviceName").textContent = "";
+    setStatus("Disconnected");
+    log("Hub disconnected.");
+  }
+  function disconnect() {
+    if (device?.gatt?.connected) device.gatt.disconnect();
+    else disconnected();
+  }
+  $("connect").addEventListener("click", connect);
+  $("disconnect").addEventListener("click", disconnect);
+  if (!window.isSecureContext) {
+    setStatus("This page needs HTTPS or localhost for Bluetooth.");
+    $("connect").disabled = true;
+  }
+})();
+</script>
+</body>
+</html>
