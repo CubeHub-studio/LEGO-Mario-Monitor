@@ -22,7 +22,7 @@
     .readout{font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;background:#0e1119;border:1px solid #30394d;border-radius:10px;padding:10px;min-height:42px;color:#d8e1f1}
     .muted{color:var(--muted);font-size:12px}.metric{font-size:22px;font-weight:800;margin:4px 0 8px}.tag{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 8px;font-size:11px;color:#cbd5e5;margin:0 5px 5px 0}
     .log{max-height:230px;overflow:auto;display:flex;flex-direction:column;gap:6px}.log-row{font:12px/1.4 ui-monospace,monospace;color:#c9d4e7;border-bottom:1px solid #30394d;padding:5px 0;overflow-wrap:anywhere}
-    .footer{color:var(--muted);font-size:12px;margin-top:18px}.warning{border-left:3px solid var(--accent);padding:10px 12px;background:#272416;border-radius:8px;color:#e9dfb9;font-size:13px;margin-top:14px}
+    .footer{color:var(--muted);font-size:12px;margin-top:18px}.range{width:100%;accent-color:var(--accent)}.control-row{display:flex;align-items:center;gap:12px}.control-row output{min-width:48px;text-align:right;font-weight:800}.progress{height:10px;background:#0e1119;border:1px solid #384258;border-radius:999px;overflow:hidden;margin:12px 0}.progress>span{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}.warning{}border-left:3px solid var(--accent);padding:10px 12px;background:#272416;border-radius:8px;color:#e9dfb9;font-size:13px;margin-top:14px}
     @media(max-width:650px){.grid{grid-template-columns:1fr}.camera{grid-column:auto}.sensor-view{height:190px}.wrap{padding-top:18px}}
   </style>
 </head>
@@ -70,8 +70,25 @@ console.log("Requested hub details and sensor updates.");
       <div class="actions"><button class="primary" id="runScript">Run script</button><button id="stopScript" disabled>Stop script</button><button id="exampleScript">Load example</button></div>
       <p class="muted" id="scriptStatus" aria-live="polite">Ready. Connect Mario before using Bluetooth commands.</p>
       <div class="readout" id="scriptOutput" aria-live="polite">Script output will appear here.</div>
-      <p class="muted">Library: <code>mario.log(text)</code>, <code>mario.delay(ms)</code>, <code>mario.subscribe(port, mode, delta?)</code>, <code>mario.unsubscribe(port, mode)</code>, <code>mario.readPort(port)</code>, <code>mario.requestPortInfo(port, infoType)</code>, <code>mario.requestPortModeInfo(port, mode, infoType)</code>, <code>mario.requestHubProperty(property)</code>, <code>mario.getHubInfo()</code>, <code>mario.requestBatteryLevel()</code>, <code>mario.requestFirmwareVersion()</code>, <code>mario.requestHardwareVersion()</code>, <code>mario.requestRSSI()</code>, <code>mario.sendHex(packet)</code>, <code>mario.disconnect()</code>.</p>
+      <p class="muted">Library: <code>mario.log(text)</code>, <code>mario.delay(ms)</code>, <code>mario.subscribe(port, mode, delta?)</code>, <code>mario.unsubscribe(port, mode)</code>, <code>mario.readPort(port)</code>, <code>mario.requestPortInfo(port, infoType)</code>, <code>mario.requestPortModeInfo(port, mode, infoType)</code>, <code>mario.requestHubProperty(property)</code>, <code>mario.getHubInfo()</code>, <code>mario.requestBatteryLevel()</code>, <code>mario.requestFirmwareVersion()</code>, <code>mario.requestHardwareVersion()</code>, <code>mario.requestRSSI()</code>, <code>mario.requestButtonState()</code>, <code>mario.setBusyIndicator(enabled)</code>, <code>mario.enableBatteryUpdates()</code>, <code>mario.disableBatteryUpdates()</code>, <code>mario.sendHex(packet)</code>, <code>mario.disconnect()</code>.</p>
       <div class="warning">Scripts can send Bluetooth commands to the connected hub. <code>mario.displaytext(text)</code> remains unavailable: LEGO's published protocol does not document a custom-text display command for Mario. The runner reports this clearly instead of sending an unverified command.</div>
+    </article>
+    <article class="card"><h2>Hub controls</h2>
+      <p class="muted">Documented hub actions and status requests.</p>
+      <div class="actions"><button id="busyOn" disabled>Busy indicator on</button><button id="busyOff" disabled>Busy indicator off</button><button id="refreshInfo" disabled>Refresh hub info</button><button id="buttonState" disabled>Check hub button</button></div>
+      <p class="muted" id="hubControlStatus">Connect Mario to enable hub controls.</p>
+      <div class="warning">The busy indicator changes the hub's documented RGB busy state. It is not an update indicator and does not change firmware.</div>
+    </article>
+    <article class="card"><h2>Volume · local slider</h2>
+      <div class="control-row"><input id="volumeSlider" class="range" type="range" min="0" max="100" value="50" aria-label="Volume"><output id="volumeValue" for="volumeSlider">50%</output></div>
+      <p class="muted">This slider only changes the monitor's displayed volume setting. Mario's documented hub protocol does not provide a general volume command.</p>
+    </article>
+    <article class="card"><h2>Firmware update screen · simulation</h2>
+      <p class="muted">Preview an update-style screen without sending firmware commands.</p>
+      <div class="metric" id="updateState">Demo idle</div><div class="progress"><span id="updateProgress"></span></div>
+      <div class="muted" id="updatePercent">0%</div>
+      <div class="actions" style="margin-top:12px"><button class="primary" id="startUpdateDemo">Play update demo</button><button id="stopUpdateDemo" disabled>Stop demo</button></div>
+      <div class="warning">Simulation only. No firmware is downloaded, transferred, installed, or changed. Actual firmware updating uses LEGO's official app.</div>
     </article>
     <article class="card"><h2>Bluetooth packet log</h2><div class="log" id="log"><div class="muted">Packets will appear here after connecting.</div></div></article>
   </section>
@@ -94,6 +111,7 @@ console.log("Requested hub details and sensor updates.");
     $("connect").disabled = connected;
     $("disconnect").disabled = !connected;
     $("sendPacket").disabled = !connected;
+    for (const id of ["busyOn","busyOff","refreshInfo","buttonState"]) $(id).disabled = !connected;
   }
   function hex(bytes) { return [...bytes].map(v=>v.toString(16).padStart(2,"0").toUpperCase()).join(" "); }
   function signedBytes(bytes) { return [...bytes].map(v=>v>127?v-256:v).join(", "); }
@@ -307,6 +325,22 @@ console.log("Requested hub details and sensor updates.");
         await subscribe(port,mode,1,false);
         activeModes.delete(port);
         result = "Notification subscription disabled for port " + port + ".";
+      } else if (method === "setBusyIndicator") {
+        if (!characteristic) throw new Error("Connect Mario before using hub actions.");
+        const enabled = Boolean(args[0]);
+        const bytes = [0x04,0x00,0x02,enabled ? 0x05 : 0x06];
+        await writePacket(bytes);
+        log("SCRIPT TX · busy indicator " + (enabled ? "activated" : "reset") + " · " + hex(bytes));
+        result = "Hub busy indicator " + (enabled ? "activated" : "reset") + ".";
+      } else if (method === "requestButtonState") {
+        if (!characteristic) throw new Error("Connect Mario before requesting button state.");
+        await writePacket([0x05,0x00,0x01,0x02,0x05]);
+        result = "Hub button-state request sent; check the packet log.";
+      } else if (method === "setBatteryUpdates") {
+        if (!characteristic) throw new Error("Connect Mario before changing battery notifications.");
+        const enabled = Boolean(args[0]);
+        await writePacket([0x05,0x00,0x01,0x06,enabled ? 0x02 : 0x03]);
+        result = "Battery notifications " + (enabled ? "enabled" : "disabled") + ".";
       } else if (method === "disconnect") {
         if (device?.gatt?.connected) device.gatt.disconnect();
         result = "Disconnected from the hub.";
@@ -363,6 +397,10 @@ console.log("Requested hub details and sensor updates.");
           requestFirmwareVersion: () => call("requestHubProperty", 3),
           requestHardwareVersion: () => call("requestHubProperty", 4),
           requestRSSI: () => call("requestHubProperty", 5),
+          requestButtonState: () => call("requestButtonState"),
+          setBusyIndicator: enabled => call("setBusyIndicator", enabled),
+          enableBatteryUpdates: () => call("setBatteryUpdates", true),
+          disableBatteryUpdates: () => call("setBatteryUpdates", false),
           disconnect: () => call("disconnect"),
           displaytext: text => call("displaytext", text)
         });
@@ -411,6 +449,15 @@ console.log("Requested hub details and sensor updates.");
       stopScript("Script ended with an error.");
     }
   });
+  $("busyOn").addEventListener("click", async () => { try { await writePacket([0x04,0x00,0x02,0x05]); $("hubControlStatus").textContent = "Busy indication activated."; log("TX · busy indicator on · 04 00 02 05"); } catch(e) { $("hubControlStatus").textContent = e.message; } });
+  $("busyOff").addEventListener("click", async () => { try { await writePacket([0x04,0x00,0x02,0x06]); $("hubControlStatus").textContent = "Busy indication reset."; log("TX · busy indicator off · 04 00 02 06"); } catch(e) { $("hubControlStatus").textContent = e.message; } });
+  $("refreshInfo").addEventListener("click", async () => { try { for (const p of [3,4,5,6,7,8,9,10,11]) { await writePacket([0x05,0x00,0x01,p,0x05]); await new Promise(r=>setTimeout(r,70)); } $("hubControlStatus").textContent = "Hub information requests sent; see packet log."; } catch(e) { $("hubControlStatus").textContent = e.message; } });
+  $("buttonState").addEventListener("click", async () => { try { await writePacket([0x05,0x00,0x01,0x02,0x05]); $("hubControlStatus").textContent = "Button-state request sent; see packet log."; } catch(e) { $("hubControlStatus").textContent = e.message; } });
+  $("volumeSlider").addEventListener("input", e => { $("volumeValue").textContent = e.target.value + "%"; });
+  let updateDemoTimer = null;
+  function stopUpdateDemo() { if (updateDemoTimer) clearInterval(updateDemoTimer); updateDemoTimer = null; $("stopUpdateDemo").disabled = true; $("startUpdateDemo").disabled = false; }
+  $("startUpdateDemo").addEventListener("click", () => { stopUpdateDemo(); let progress = 0; $("startUpdateDemo").disabled = true; $("stopUpdateDemo").disabled = false; $("updateState").textContent = "Preparing demo…"; $("updateProgress").style.width = "0%"; $("updatePercent").textContent = "0% · SIMULATION ONLY"; updateDemoTimer = setInterval(() => { progress = Math.min(100, progress + Math.ceil(Math.random()*5)); $("updateProgress").style.width = progress + "%"; $("updatePercent").textContent = progress + "% · SIMULATION ONLY"; $("updateState").textContent = progress < 25 ? "Checking package…" : progress < 60 ? "Transferring demo data…" : progress < 90 ? "Verifying demo…" : "Finalizing preview…"; if (progress >= 100) { stopUpdateDemo(); $("updateState").textContent = "Demo complete · no firmware changed"; log("Update screen demo completed. No firmware operation was performed."); } }, 180); });
+  $("stopUpdateDemo").addEventListener("click", () => { stopUpdateDemo(); $("updateState").textContent = "Demo stopped · no firmware changed"; });
   $("runScript").addEventListener("click", runScript);
   $("stopScript").addEventListener("click", () => stopScript());
   $("exampleScript").addEventListener("click", () => {
